@@ -390,6 +390,9 @@ r2$markerDistance <- r2$markerDistance # kb
 # Calculate average LD and save for the simulation parameters
 r2_s <- r2[sample(nrow(r2), 100000), ]
 
+# Code for trend line 
+# Source: https://www.r-bloggers.com/2011/08/estimate-decay-of-linkage-disequilibrium-with-distance/
+
 distance<-r2_s$markerDistance 
 LD.data<-r2_s$R2
 n<-1000
