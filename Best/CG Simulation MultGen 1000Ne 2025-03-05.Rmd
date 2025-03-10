@@ -1,0 +1,2932 @@
+---
+title: "CG Multigen Test"
+author: "Edward Carlsson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+What do I want to test?
+   Mass selection Accuracy
+   Within family Accuracy
+   (Can be easily run together)
+ Previous Generation vs All previous generations
+
+ Iterative Changes from Gen0->Gen5
+
+
+
+```{r Libraries}
+library(ASRgenomics)
+library(asreml)
+library(caret)
+library(doParallel)
+library(dplyr)
+library(rrBLUP)
+```
+
+```{r Load Data}
+
+setwd("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/")
+
+Data <- read.table("It1/Sim_Data_2025-03-05.txt",header = T)
+
+Data$Genotype_ID<-as.factor(Data$Genotype_ID)
+
+Data <- Data %>%
+  arrange(by = Genotype_ID)
+
+Data <- na.omit(Data)
+
+Data_G0 <- Data[Data$Gen == "G0",]
+Data_G1 <- Data[Data$Gen == "G1",]
+Data_G2 <- Data[Data$Gen == "G2",]
+Data_G3 <- Data[Data$Gen == "G3",]
+Data_G4 <- Data[Data$Gen == "G4",]
+Data_G5 <- Data[Data$Gen == "G5",]
+
+Genotypes_G0 <- as.character(unique(Data_G0$Genotype_ID))
+Genotypes_G1 <- as.character(unique(Data_G1$Genotype_ID))
+Genotypes_G2 <- as.character(unique(Data_G2$Genotype_ID))
+Genotypes_G3 <- as.character(unique(Data_G3$Genotype_ID))
+Genotypes_G4 <- as.character(unique(Data_G4$Genotype_ID))
+Genotypes_G5 <- as.character(unique(Data_G5$Genotype_ID))
+
+
+Data_G0 <- Data[Data$Gen == "G0",]# Could potentially be too much to load all at once!
+M0 <- as.matrix(read.table("It1/Sim_G0_M_Matrix_2025-03-04.txt",header = T, check.names = FALSE))
+M1 <- as.matrix(read.table("It1/Sim_G1_M_Matrix_2025-03-04.txt",header = T, check.names = FALSE))
+M2 <- as.matrix(read.table("It1/Sim_G2_M_Matrix_2025-03-04.txt",header = T, check.names = FALSE))
+M3 <- as.matrix(read.table("It1/Sim_G3_M_Matrix_2025-03-04.txt",header = T, check.names = FALSE))
+M4 <- as.matrix(read.table("It1/Sim_G4_M_Matrix_2025-03-04.txt",header = T, check.names = FALSE))
+M5 <- as.matrix(read.table("It1/Sim_G5_M_Matrix_2025-03-04.txt",header = T, check.names = FALSE))
+```
+
+$$Only\ previous\ Geeration$$
+
+```{r G0->G1}
+Today <- Sys.Date()
+Training_Generation <- Data_G0
+Test_Generation <- Data_G1
+Training_Genotypes <- Genotypes_G0
+Test_Genotypes <- Genotypes_G1
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+# Create the G matrix
+  G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G01_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+  
+  G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G1 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G1 <- bind_rows(results, .id = "Fold")
+CV_Single_G1$Date <- Today
+rm(G)
+```
+
+```{r G1->G2}
+Today <- Sys.Date()
+Training_Generation <- Data_G1
+Test_Generation <- Data_G2
+Training_Genotypes <- Genotypes_G1
+Test_Genotypes <- Genotypes_G2
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G12_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G2 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G2 <- bind_rows(results, .id = "Fold")
+CV_Single_G2$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G2->G3}
+Today <- Sys.Date()
+Training_Generation <- Data_G2
+Test_Generation <- Data_G3
+Training_Genotypes <- Genotypes_G2
+Test_Genotypes <- Genotypes_G3
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G23_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+  G<-G.inverse(G, sparseform = T)
+  G<-G$Ginv.sparse
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G3 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV$solution, Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G3 <- bind_rows(results, .id = "Fold")
+CV_Single_G3$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G3->G4}
+Today <- Sys.Date()
+Training_Generation <- Data_G3
+Test_Generation <- Data_G4
+Training_Genotypes <- Genotypes_G3
+Test_Genotypes <- Genotypes_G4
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G34_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+  G<-G.inverse(G, sparseform = T)
+  G<-G$Ginv.sparse
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G4 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G4 <- bind_rows(results, .id = "Fold")
+CV_Single_G4$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G4->G5}
+Today <- Sys.Date()
+Training_Generation <- Data_G4
+Test_Generation <- Data_G5
+Training_Genotypes <- Genotypes_G4
+Test_Genotypes <- Genotypes_G5
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G45_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1  Single G5 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE)
+                              )
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G5 <- bind_rows(results, .id = "Fold")
+CV_Single_G5$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+
+```{r G0.G1->G2}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1)
+Test_Generation <- Data_G2
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1)
+Test_Genotypes <- Genotypes_G2
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G012_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G2 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G2 <- bind_rows(results, .id = "Fold")
+CV_Multi_G2$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G0.G1.G2->G3}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1,Data_G2)
+Test_Generation <- Data_G3
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1,Genotypes_G2)
+Test_Genotypes <- Genotypes_G3
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G0123_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G3 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G3 <- bind_rows(results, .id = "Fold")
+CV_Multi_G3$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G0.G1.G2.G3->G4}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1,Data_G2,Data_G3)
+Test_Generation <- Data_G4
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1,Genotypes_G2,Genotypes_G3)
+Test_Genotypes <- Genotypes_G4
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G01234_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G4 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G4 <- bind_rows(results, .id = "Fold")
+CV_Multi_G4$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G0.G1.G2.G3.G4->G5}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1,Data_G2,Data_G3,Data_G4)
+Test_Generation <- Data_G5
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1,Genotypes_G2,Genotypes_G3,Genotypes_G4)
+Test_Genotypes <- Genotypes_G5
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+  G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G012345_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G5 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G5 <- bind_rows(results, .id = "Fold")
+CV_Multi_G5$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r Mean Accuracy}
+mean(CV_Single_G1$Acc.True)
+mean(CV_Single_G2$Acc.True)
+mean(CV_Single_G3$Acc.True)
+mean(CV_Single_G4$Acc.True)
+mean(CV_Single_G5$Acc.True)
+
+mean(CV_Multi_G2$Acc.True)
+mean(CV_Multi_G3$Acc.True)
+mean(CV_Multi_G4$Acc.True)
+mean(CV_Multi_G5$Acc.True)
+
+mean(CV_Single_G1$Acc.Wf.True)
+mean(CV_Single_G2$Acc.Wf.True)
+mean(CV_Single_G3$Acc.Wf.True)
+mean(CV_Single_G4$Acc.Wf.True)
+mean(CV_Single_G5$Acc.Wf.True)
+
+mean(CV_Multi_G2$Acc.Wf.True)
+mean(CV_Multi_G3$Acc.Wf.True)
+mean(CV_Multi_G4$Acc.Wf.True)
+mean(CV_Multi_G5$Acc.Wf.True)
+```
+
+```{r Load Data}
+
+setwd("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/")
+
+Data <- read.table("It3/Sim_Data_2025-03-07.txt",header = T)
+
+Data$Genotype_ID<-as.factor(Data$Genotype_ID)
+
+Data <- Data %>%
+  arrange(by = Genotype_ID)
+
+Data <- na.omit(Data)
+
+Data_G0 <- Data[Data$Gen == "G0",]
+Data_G1 <- Data[Data$Gen == "G1",]
+Data_G2 <- Data[Data$Gen == "G2",]
+Data_G3 <- Data[Data$Gen == "G3",]
+Data_G4 <- Data[Data$Gen == "G4",]
+Data_G5 <- Data[Data$Gen == "G5",]
+
+Genotypes_G0 <- as.character(unique(Data_G0$Genotype_ID))
+Genotypes_G1 <- as.character(unique(Data_G1$Genotype_ID))
+Genotypes_G2 <- as.character(unique(Data_G2$Genotype_ID))
+Genotypes_G3 <- as.character(unique(Data_G3$Genotype_ID))
+Genotypes_G4 <- as.character(unique(Data_G4$Genotype_ID))
+Genotypes_G5 <- as.character(unique(Data_G5$Genotype_ID))
+```
+
+$$Only\ previous\ Geeration$$
+
+```{r G0->G1}
+Today <- Sys.Date()
+Training_Generation <- Data_G0
+Test_Generation <- Data_G1
+Training_Genotypes <- Genotypes_G0
+Test_Genotypes <- Genotypes_G1
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+# Create the G matrix
+  G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G01_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+  
+  G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G1 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G1 <- bind_rows(results, .id = "Fold")
+CV_Single_G1$Date <- Today
+rm(G)
+```
+
+```{r G1->G2}
+Today <- Sys.Date()
+Training_Generation <- Data_G1
+Test_Generation <- Data_G2
+Training_Genotypes <- Genotypes_G1
+Test_Genotypes <- Genotypes_G2
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G12_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G2 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G2 <- bind_rows(results, .id = "Fold")
+CV_Single_G2$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G2->G3}
+Today <- Sys.Date()
+Training_Generation <- Data_G2
+Test_Generation <- Data_G3
+Training_Genotypes <- Genotypes_G2
+Test_Genotypes <- Genotypes_G3
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G23_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+  G<-G.inverse(G, sparseform = T)
+  G<-G$Ginv.sparse
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G3 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV$solution, Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G3 <- bind_rows(results, .id = "Fold")
+CV_Single_G3$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G3->G4}
+Today <- Sys.Date()
+Training_Generation <- Data_G3
+Test_Generation <- Data_G4
+Training_Genotypes <- Genotypes_G3
+Test_Genotypes <- Genotypes_G4
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G34_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+  G<-G.inverse(G, sparseform = T)
+  G<-G$Ginv.sparse
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Single G4 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G4 <- bind_rows(results, .id = "Fold")
+CV_Single_G4$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G4->G5}
+Today <- Sys.Date()
+Training_Generation <- Data_G4
+Test_Generation <- Data_G5
+Training_Genotypes <- Genotypes_G4
+Test_Genotypes <- Genotypes_G5
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(as.character(Both_Generations$Genotype_ID))
+
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G45_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1  Single G5 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE)
+                              )
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Single_G5 <- bind_rows(results, .id = "Fold")
+CV_Single_G5$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+
+```{r G0.G1->G2}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1)
+Test_Generation <- Data_G2
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1)
+Test_Genotypes <- Genotypes_G2
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G012_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G2 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G2 <- bind_rows(results, .id = "Fold")
+CV_Multi_G2$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G0.G1.G2->G3}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1,Data_G2)
+Test_Generation <- Data_G3
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1,Genotypes_G2)
+Test_Genotypes <- Genotypes_G3
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G0123_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G3 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G3 <- bind_rows(results, .id = "Fold")
+CV_Multi_G3$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G0.G1.G2.G3->G4}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1,Data_G2,Data_G3)
+Test_Generation <- Data_G4
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1,Genotypes_G2,Genotypes_G3)
+Test_Genotypes <- Genotypes_G4
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G01234_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G4 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G4 <- bind_rows(results, .id = "Fold")
+CV_Multi_G4$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
+
+```{r G0.G1.G2.G3.G4->G5}
+gc()
+Today <- Sys.Date()
+Training_Generation <- rbind(Data_G0,Data_G1,Data_G2,Data_G3,Data_G4)
+Test_Generation <- Data_G5
+Training_Genotypes <- c(Genotypes_G0,Genotypes_G1,Genotypes_G2,Genotypes_G3,Genotypes_G4)
+Test_Genotypes <- Genotypes_G5
+
+Both_Generations <- rbind(Training_Generation,Test_Generation)
+Both_Generations$Genotype_ID <- as.factor(Both_Generations$Genotype_ID)
+
+# Create the G matrix
+  G<-as.matrix(read.table("C:/Users/EDCA/OneDrive - Skogforsk/Documents/PhD Data/Simulations/MultiGenTest/It1/Sim_G012345_G_Matrix_2025-03-05.txt",header = T, check.names = FALSE))
+
+  rownames(G) <- colnames(G)
+
+  row_order <- order(match(rownames(G), levels(Both_Generations$Genotype_ID)))
+  col_order <- order(match(colnames(G), levels(Both_Generations$Genotype_ID)))
+
+  G <- G[row_order, col_order, drop = FALSE]
+
+    G <- G + 0.01*diag(nrow(G))
+
+# Create factors
+  Test_Generation$Genotype_ID <- as.factor(as.character(Test_Generation$Genotype_ID))
+
+# Save all family names
+  all_families <- unique(Test_Generation$Family)
+  PA_Families <- paste0("Fam_", all_families, "_PA")
+  Acc.True_Families <- paste0("Fam_", all_families, "_Acc.True")
+  
+
+# Calculate the heritability of the test set
+  model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                 random = ~vm(Genotype_ID, G),
+                                 residual = ~id(units),
+                                 maxiter = 50,
+                                 data = Test_Generation,
+                                 ai.sing = TRUE,
+                                 workspace=200e06))
+  
+  h2.test <- vpredict(model, h2~V1/(V1+V2))$Estimate
+  
+  # Create list to store results
+results <- list()
+  
+# Initiate the loop
+foreach (j = (1:20)) %do% {
+  cv_folds <- createFolds(Training_Genotypes, k = 5, list = TRUE, returnTrain = TRUE)
+  # Run through each fold
+  results_list <- vector("list", length = 5)
+  
+  foreach(i = (1:5)) %do% {
+    # Remember i
+    cat("Running It1 Multi G5 fold number:",j , i, "\n")
+    
+    train_indices <- unlist(cv_folds[i])
+    
+    # Create training set
+    train_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[train_indices], ]
+    
+    # Create validation set
+    validation_data <- Training_Generation[Training_Generation$Genotype_ID %in% Training_Genotypes[-train_indices], ]
+    
+    # Extract the genotypes of the training and validation set
+    Train_geno<-train_data$Genotype_ID
+    
+    # Extract the size of the training and validation set
+    Geno.train<-length(unique(train_data$Genotype_ID))
+    
+    Obs.train <- nrow(train_data)
+    
+    # Create the indecis matricies for the training and test set
+    Ztrain <- model.matrix(~train_data$Genotype_ID-1)
+    Ztest <- model.matrix(~Test_Generation$Genotype_ID-1)
+    
+    length(unique(Test_Generation$Genotype_ID))
+    
+    # Run the GBLUP model on the training set
+    model <- suppressWarnings(asreml(fixed = Phenotype ~ 1,
+                                     random = ~vm(Genotype_ID, G),
+                                     residual = ~id(units),
+                                     maxiter = 50,
+                                     data = train_data,
+                                     ai.sing = TRUE,
+                                     workspace=200e06))
+   Converge<-model$converge
+    
+    # Record Variance components
+    vc <- summary(model)$varcomp
+    Va <- vc[1,1]
+    Ve <- vc[2,1] 
+    VaPerCh = vc[1,5]
+    VePerCh = vc[2,5]
+    
+# Record trining Heritability
+    h2.train <- vpredict(model, h2~V1/(V1+V2))$Estimate
+    
+    # Extract the GEBVs  
+    GEBV <- as.data.frame(summary(model, coef=T)$coef.random)
+    GEBV$Genotype_ID <- rownames(GEBV)
+    GEBV$Genotype_ID<-gsub("vm\\(Genotype_ID, G\\)_", "",(GEBV$Genotype_ID))
+
+    GEBV <- GEBV[GEBV$Genotype_ID %in% Test_Genotypes,]
+    
+    # Record Predictive ability
+    Pa<-cor(Ztest%*%GEBV$solution, Test_Generation$Phenotype) # Across all families
+    
+    
+        # Prediction accuracy
+    Acc.h2 <- Pa/sqrt(h2.test)  # Using the h2 of the validation set
+    Acc.True<-cor(Ztest%*%GEBV[,1], Test_Generation$Tbv) # True Accuracy
+
+    Acc.Wf <- setNames(
+      sapply(all_families, function(fam) {
+        if (fam %in% as.character(Test_Generation$Family)) {
+          fam_data <- Test_Generation %>% filter(as.character(Family) == fam)  # Ensure matching type
+          Zfam <- model.matrix(~ fam_data$Genotype_ID - 1)
+          cor(Zfam %*% GEBV$solution, fam_data$Tbv)
+        } else {
+          NA  # Assign NA if the family is missing in this iteration
+        }
+      }),
+      Acc.True_Families  # Set all family names as column names
+    )
+    Acc.Wf.True<-mean(Acc.Wf, na.rm = T) # Mean across all famiies
+
+        # Store results
+    results[[paste0("Fold_", j, "_", i)]] <- c(
+      list(
+        Converge = Converge,
+        Geno.train = Geno.train,
+        Geno.test = length(Test_Genotypes),
+        Obs.train = Obs.train,
+        Obs.test = nrow(Test_Generation),
+        Va = Va, 
+        Ve = Ve,
+        VaPerCh = VaPerCh,
+        VePerCh = VePerCh,
+        h2.train = h2.train,
+        h2.test = h2.test,
+        Pa = Pa[1],
+        Acc.h2 = Acc.h2[1],
+        Acc.True = Acc.True[1],
+        Acc.Wf.True = Acc.Wf.True
+      )
+    )
+  }
+}
+
+CV_Multi_G5 <- bind_rows(results, .id = "Fold")
+CV_Multi_G5$Date <- Today
+rm(G)
+rm(Ztrain)
+rm(Ztest)
+```
