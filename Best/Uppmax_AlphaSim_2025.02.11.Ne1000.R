@@ -231,7 +231,11 @@ Pheno_G0<-ggplot(df, aes(x = Trait1)) +
 
 
 # Select best plus trees based on phenotype
-Parents<-selectInd(G0_pop, nParents, trait = 1, use = "pheno", selectTop = T)
+Parents<-selectInd(G0_pop,
+                   nParents, 
+                   trait = 1, 
+                   use = "pheno",
+                   selectTop = T)
 
 #### Create the F1 population #####
 

@@ -35,15 +35,15 @@ MatAge = 45   # Average age age at reproduction during burn-in
 ConMR = (2.2*10^-9) * MatAge # Source: Nystedt et al., 2013 https://doi.org/10.1038/nature12211
 
 # Founder Population
-nFounders = 1000    # Number of founders in the population
-neFounders = 1000    # Effective population size of founders
+nFounders = 100   # Number of founders in the population
+neFounders = 10    # Effective population size of founders
 
 nGenBurnIn <- 100  # Number of descrete burn-in generations
-nCrossBurnIn <- 1000 # Number of crosses within each burn-in generation
-nProgBurnIn <- 2
+nCrossBurnIn <- 100 # Number of crosses within each burn-in generation
+nProgBurnIn <- 10
 
 # Size of the G0 population
-nG0 = 1000
+nG0 = 100
 
 # Trait
 Trait = "A"         # Make the trait completely additive for simplicity
@@ -70,16 +70,16 @@ h2_G0 = 0.2
 h2_G1 = 0.2
 
 # Crosses
-nParents = 30       # Number of parents to be crossed
-nCross = 35     # Number of families to create from Parents
-nProg = 30      # Number of progeny per cross
+nParents = 10       # Number of parents to be crossed
+nCross = 10     # Number of families to create from Parents
+nProg = 10      # Number of progeny per cross
 # Comment: Create ~ 1000 individuals
 
 # Segregating sites
-SegSite = 1000000
+SegSite = 1000
 
 # SNP chip
-nSNP = round(40470/12)     # Nr of SNPs per chromosome
+nSNP = 100     # Nr of SNPs per chromosome
 # Comment: Replicate the number of real SNPs after filtering (~ 39600) 
 
 # Mating schemes
@@ -140,41 +140,6 @@ for (i in 1:nGenBurnIn) {
 
 G0_pop <- selectInd(G0_pop, nG0, use = "rand")
 
-VarA_G0 <- varG(G0_pop)
-VarA_list <- c(VarA_list, VarA_G0)
-MeanA_G0 <- meanG(G0_pop)
-MeanA_list <- c(MeanA_list, MeanA_G0)
-
-time <- seq_along(VarA_list)  # Time series
-
-# Create a data frame
-df <- data.frame(
-  Time = rep(time, 2),  # Repeat time for both parameters
-  Value = c(unlist(VarA_list), unlist(MeanA_list)),  # Combine the values of both parameters
-  Parameter = rep(c("VarG", "MeanG"), each = length(time))  # Label each parameter
-)
-
-# Plot the data
-Burn_Image<-ggplot(df, aes(x = Time, y = Value, color = Parameter)) +
-  geom_line(linewidth = 0.5) +         # Lines for both parameters
-  geom_point(size = 1) + 
-  scale_color_manual( values = c("VarG" = "darkgreen", "MeanG" = "darkred")  # Custom colors
-  ) +# Points for both parameters
-  labs(title = "",
-       x = "Generation",
-       y = "Value",
-       color = "Parameter"
-  ) +
-  theme_minimal()       
-
-filename <- paste0("Burn_in_effect.", today_date, ".png")
-ggsave(filename, Burn_Image, width = 8, height = 6, dpi = 300)
-
-# Randomly assigns eligible SNPs to SNP chip
-# Use the latest population as reference
-SP$addSnpChip(nSNP, minSnpFreq = 0.01, refPop = G0_pop)
-
-# Generate Phenotype Data
 G0_Pheno <- as.data.frame(G0_pop@id)
 
 # Number of replicates
@@ -208,217 +173,106 @@ for (i in seq_along(cols)) {
 G0_Pheno$Mean <- rowMeans(G0_Pheno[ , -1], na.rm = T)
 G0_pop@pheno <- as.matrix(G0_Pheno$Mean)
 
-# Select best plus trees based on phenotype
-Parents<-selectInd(G0_pop, nParents, trait = 1, use = "pheno", selectTop = T)
+# Randomly assigns eligible SNPs to SNP chip
+# Use the latest population as reference
+SP$addSnpChip(nSNP, minSnpFreq = 0.01, refPop = G0_pop)
 
-##################################### G1 #######################################
+# Generate Phenotype Data
 
-G_pops <- vector("list", nParents)
+# Define number of generations
+num_generations <- 3  # Change as needed
 
-for (i in 1:nParents) {
-  # Generate random number of progeny for this cross (with mean = 30 and sd = 10)
-  Prog_number <- max(round(rnorm(1, mean = nProg, sd = 10)), 1)
+# Initialize populations
+current_pop <- G0_pop
+G_Pheno_mean <- data.frame(ID = G0_Pheno$`G0_pop@id`, Trait = G0_Pheno$Mean)
+Ped_G <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G0_pop@id,])
+Ped_G$mother <- 0
+Ped_G$father <- 0
+
+# Store populations for downstream analysis
+pop_list <- list(G0 = G0_pop)
+
+# Loop through generations
+for (gen in 1:num_generations) {
+  cat("Generation:", gen, "\n")
   
-  # Create a population for this iteration
-  G_pops[[i]] <- randCross(
-    pop = Parents,   # The population to cross
-    nCrosses = 1,    # Total number of crosses
-    nProgeny = Prog_number,  # Number of progeny per cross (randomly generated)
-    balance = NULL,   # If using sexes, this option will balance the number of progeny per parent
-    parents = NULL,
-    ignoreSexes = TRUE  # Should sexes be ignored?
-  )
-}
-
-G1_pop <- do.call(c, G_pops)
-
-
-# Pedigree for all individuals
-Ped<-SP$pedigree
-
-Ped_G0 <- as.data.frame(Ped[rownames(Ped) %in% G0_pop@id,])
-Ped_G0$mother <- 0
-Ped_G0$father <- 0
-Ped_G1 <- as.data.frame(Ped[rownames(Ped) %in% G1_pop@id,])
-
-Ped_G<-rbind(Ped_G0,Ped_G1)
-
-Ped_G1 <- data.frame(ID = rownames(Ped_G1),
-                     Sire = Ped_G1$father,
-                     Dam = Ped_G1$mother)
-
-Ped<-SP$pedigree
-
-Ped_G1 <- as.data.frame(Ped[rownames(Ped) %in% G1_pop@id,])
-
-Ped_G<-rbind(Ped_G0,Ped_G1)
-
-Pedigree <- data.frame(ID = rownames(Ped_G),
-                       Sire = Ped_G$father,
-                       Dam = Ped_G$mother)
-
-# Calcualte the A matrix
-A_matrix<-2*kinship(id = Pedigree$ID, dadid = Pedigree$Sire, momid = Pedigree$Dam, )
-
-# Create Phenotype data
-
-G1_Pheno <- as.data.frame(G1_pop@id)
-
-# Number of replicates
-n_reps <- 10
-
-# Loop through and assign phenotypic values
-for (i in 1:n_reps) {
-  G1_Pheno[[paste0("V", i)]] <- setPheno(G1_pop,
-                                         h2 = h2_G1, 
-                                         fixEff = 1L,
-                                         onlyPheno = TRUE,
-                                         traits = 1,
-                                         reps = 1,
-                                         simParam = NULL)
-}
-num_values <- prod(dim(G1_Pheno[, -1]))
-num_na <- round(0.1 * num_values)
-rows <- sample(nrow(G1_Pheno), num_na, replace = TRUE)
-cols <- sample(2:ncol(G1_Pheno), num_na, replace = TRUE) 
-# Assign NA to selected positions
-for (i in seq_along(rows)) {
-  G1_Pheno[rows[i], cols[i]] <- NA
-}
-
-for (i in seq_along(cols)) {
-  G1_Pheno[rows[i], cols[i]] <- NA
-}
-
-
-G1_Pheno$Mean <- rowMeans(G1_Pheno[ , -1], na.rm = T)
-
-# Set Mean values as G1 means
-G1_pop@pheno <- as.matrix(G1_Pheno$Mean)
-
-# Get Mean Phenotype 
-G0_Pheno_mean <- data.frame(
-  ID = G0_Pheno$`G0_pop@id`,
-  Trait = G0_Pheno$Mean)
-
-G1_Pheno_mean <- data.frame(
-  ID = G1_Pheno$`G1_pop@id`,
-  Trait = G1_Pheno$Mean)
-
-G_Pheno_mean <- rbind(G0_Pheno_mean,G1_Pheno_mean)
-
-
-Prog_number <- max(round(rnorm(1, mean = nProg, sd = 10)), 1)
-
-# Calcualte EBVs
-model<-kin.blup(data = G_Pheno_mean,
-                geno = "ID",
-                pheno = "Trait",
-                K = A_matrix)
-
-EBV <- data.frame(ebv = model$g,
-                  ID = G_Pheno_mean$ID)
-
-EBV_G1 <- EBV[EBV$ID %in% G1_pop@id,]
-
-G1_pop@ebv <- as.matrix(EBV_G1$ebv)
-
-
-New_candidates<-selectWithinFam(pop = G1_pop,
-                                nInd = 1, # Number Selected within each family
-                                use = "ebv")
-
-#################################### G2 ########################################
-
-G_pops <- vector("list", nParents)
-
-for (i in 1:nParents) {
-  # Generate random number of progeny for this cross (with mean = 30 and sd = 10)
-  Prog_number <- max(round(rnorm(1, mean = nProg, sd = 10)), 1)
+  # Select best individuals based on phenotype or EBV
+  if (gen == 1) {
+    Parents <- selectInd(current_pop, nParents, trait = 1, use = "pheno", selectTop = TRUE)
+  } else {
+    Parents <- selectWithinFam(pop = current_pop, nInd = 1, use = "ebv")
+  }
   
-  # Create a population for this iteration
-  G_pops[[i]] <- randCross(
-    pop = New_candidates,   # The population to cross
-    nCrosses = 1,    # Total number of crosses
-    nProgeny = Prog_number,  # Number of progeny per cross (randomly generated)
-    balance = NULL,   # If using sexes, this option will balance the number of progeny per parent
-    parents = NULL,
-    ignoreSexes = TRUE  # Should sexes be ignored?
-  )
+  # Generate progeny
+  G_pops <- vector("list", nParents)
+  for (i in 1:nParents) {
+    Prog_number <- max(round(rnorm(1, mean = nProg, sd = 10)), 1)
+    G_pops[[i]] <- randCross(
+      pop = Parents, 
+      nCrosses = 1, 
+      nProgeny = Prog_number, 
+      ignoreSexes = TRUE
+    )
+  }
+  
+  new_pop <- do.call(c, G_pops)
+  
+  # Save population object
+  pop_list[[paste0("G", gen)]] <- new_pop
+  
+  # Update pedigree
+  Ped_new <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% new_pop@id,])
+  Ped_G <- rbind(Ped_G, Ped_new)
+  Pedigree <- data.frame(ID = rownames(Ped_G), Sire = Ped_G$father, Dam = Ped_G$mother)
+  
+  # Calculate relationship matrix
+  A_matrix <- 2 * kinship(id = Pedigree$ID, dadid = Pedigree$Sire, momid = Pedigree$Dam)
+  
+  # Assign phenotypic values
+  new_Pheno <- as.data.frame(new_pop@id)
+  for (i in 1:10) {
+    new_Pheno[[paste0("V", i)]] <- setPheno(new_pop, h2 = h2_G1, fixEff = 1L, onlyPheno = TRUE, traits = 1, reps = 1)
+  }
+  
+  # Introduce missing values
+  num_values <- prod(dim(new_Pheno[, -1]))
+  num_na <- round(0.1 * num_values)
+  rows <- sample(nrow(new_Pheno), num_na, replace = TRUE)
+  cols <- sample(2:ncol(new_Pheno), num_na, replace = TRUE)
+  for (i in seq_along(rows)) new_Pheno[rows[i], cols[i]] <- NA
+  new_Pheno$Mean <- rowMeans(new_Pheno[, -1], na.rm = TRUE)
+  new_pop@pheno <- as.matrix(new_Pheno$Mean)
+  
+  
+
+  # Update phenotype dataset
+  new_Pheno_mean <- data.frame(ID = new_Pheno$`new_pop@id`, Trait = new_Pheno$Mean)
+  G_Pheno_mean <- rbind(G_Pheno_mean, new_Pheno_mean)
+  
+  # Calculate EBVs
+  model <- kin.blup(data = G_Pheno_mean, geno = "ID", pheno = "Trait", K = A_matrix)
+  EBV <- data.frame(ebv = model$g, ID = G_Pheno_mean$ID)
+  EBV_new <- EBV[EBV$ID %in% new_pop@id,]
+  new_pop@ebv <- as.matrix(EBV_new$ebv)
+  
+  # Save population object
+  pop_list[[paste0("G", gen)]] <- new_pop
+  
+  # Update current population for next iteration
+  current_pop <- new_pop
 }
 
-G2_pop <- do.call(c, G_pops)
-
-Ped<-SP$pedigree
-
-Ped_G2 <- as.data.frame(Ped[rownames(Ped) %in% G2_pop@id,])
-
-Ped_G<-rbind(Ped_G0,Ped_G1,Ped_G2)
-
-Pedigree <- data.frame(ID = rownames(Ped_G),
-                       Sire = Ped_G$father,
-                       Dam = Ped_G$mother)
-
-# Calcualte the A matrix
-A_matrix<-2*kinship(id = Pedigree$ID, dadid = Pedigree$Sire, momid = Pedigree$Dam, )
-
-G2_Pheno <- as.data.frame(G2_pop@id)
-
-# Number of replicates
-n_reps <- 10
-
-# Loop through and assign phenotypic values
-for (i in 1:n_reps) {
-  G2_Pheno[[paste0("V", i)]] <- setPheno(G2_pop,
-                                         h2 = h2_G1, 
-                                         fixEff = 1L,
-                                         onlyPheno = TRUE,
-                                         traits = 1,
-                                         reps = 1,
-                                         simParam = NULL)
-}
-num_values <- prod(dim(G2_Pheno[, -1]))
-num_na <- round(0.1 * num_values)
-rows <- sample(nrow(G2_Pheno), num_na, replace = TRUE)
-cols <- sample(2:ncol(G2_Pheno), num_na, replace = TRUE) 
-# Assign NA to selected positions
-for (i in seq_along(rows)) {
-  G2_Pheno[rows[i], cols[i]] <- NA
-}
-
-for (i in seq_along(cols)) {
-  G2_Pheno[rows[i], cols[i]] <- NA
-}
-
-G2_Pheno$Mean <- rowMeans(G2_Pheno[ , -1], na.rm = T)
-
-# Set Mean values as G1 means
-G2_pop@pheno <- as.matrix(G2_Pheno$Mean)
-
-G2_Pheno_mean <- data.frame(
-  ID = G2_Pheno$`G2_pop@id`,
-  Trait = G2_Pheno$Mean)
-
-G_Pheno_mean <- rbind(G0_Pheno_mean,G1_Pheno_mean, G2_Pheno_mean)
 
 
-# Calcualte EBVs
-model<-kin.blup(data = G_Pheno_mean,
-                geno = "ID",
-                pheno = "Trait",
-                K = A_matrix)
 
 
-EBV <- data.frame(ebv = model$g,
-                  ID = G_Pheno_mean$ID)
 
-EBV_G2 <- EBV[EBV$ID %in% G2_pop@id,]
 
-G2_pop@ebv <- as.matrix(EBV_G2$ebv)
 
-New_candidates<-selectWithinFam(pop = G2_pop,
-                                nInd = 1, # Number Selected within each family
-                                use = "ebv")
+
+
+
+
 
 
 ####################################### G3 #####################################
