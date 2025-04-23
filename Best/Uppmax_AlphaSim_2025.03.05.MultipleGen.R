@@ -93,7 +93,7 @@ library(ggridges)
 
   # Crosses
     nParents = 10   # Number of parents to be selected
-    nCross = 10     # Number of families to create from Parents
+    nCross = 50     # Number of families to create from Parents
     nProg = 10      # Number of progeny per cross
 
   # Mating schemes
@@ -191,37 +191,54 @@ for (i in 1:nGenBurnIn) {
 # Select clones for first real G0 generation
 G0_pop <- selectInd(G0_pop, nG0, use = "rand")
 
+# Save pedigree
+  Pedigree_All <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G0_pop@id,])
+  Pedigree_All$mother <- 0 # Reset pedigree for Plus trees
+  Pedigree_All$father <- 0 # Reset pedigree for Plus trees
+  Pedigree<-as.data.frame(SP$pedigree)
+  
+  # Save as data frame
+  A <- data.frame(ID = as.numeric(rownames(Pedigree_All)),
+                  Sire = Pedigree_All$father,
+                  Dam = Pedigree_All$mother)
+
 #### Add SNP chips ####
 
 # Randomly assigns eligible SNPs to SNP chip
 # Use the latest population as reference
-SP$addSnpChip(nSNP, minSnpFreq = minMAF,name = "GS", refPop = G0_pop)
-SP$addSnpChip(nSNP2, minSnpFreq = minMAF,name = "Inb", refPop = G0_pop)
+  SP$addSnpChip(nSNP, minSnpFreq = minMAF,name = "GS", refPop = G0_pop)
+  SP$addSnpChip(nSNP2, minSnpFreq = minMAF,name = "Inb", refPop = G0_pop)
 
+# Calculate initial inbreeding
+                    # Alternative 1: A-matrix
+  Kinship_matrix<- 2*kinship(id = as.numeric(rownames(Pedigree_All)),
+                        dadid = Pedigree_All$father,
+                        momid = Pedigree_All$mother)
+
+
+                    # Alternative 2: G-matrix
 # Genotype with imaginary high-density SNP chip to estimate an inbreeding baseline
-G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
-  G<-A.mat(G_G0, min.MAF = 0.01)
-  F_0<-mean(diag(G))
-
-  F_new <-(diag(G))-F_0
-
-  Inbreeding<-data.frame(F = F_new,
-                       ID = as.numeric(G0_pop@id))
-
-    # Save mean self-kinship 
-   F_df <- data.frame(Inbreeding = mean(diag(G)))
+# G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
+# Kinship_matrix<-A.mat(G_G0, min.MAF = 0.01)
 
 
-  ###### Calculate MAF distribution ####
-    G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")
-    maf_values_df <- data.frame(Frequency = apply(G_G0, 2, calculate_maf),
+  F_0<-mean(diag(Kinship_matrix))-1
+
+  # Save first estimate of inbreeding
+    Inbreeding<-data.frame(F = F_0,
+                          ID = as.numeric(G0_pop@id))
+
+# Save mean self-kinship 
+  F_df <- data.frame(Inbreeding = mean(diag(Kinship_matrix)))
+
+# Initialize coancestry 
+  Ns_df <- data.frame(Status_number = 0,
+                         Coancestry = 0,
                                 Gen = 0)
-  #maf_values0.05 <-maf_values[maf_values$Frequency > 0.01, ]
-  
 # Add first phenotypes
     G0_Pheno <- data.frame(genotype_id = (G0_pop@id))  # Start with IDs
 
-    for (i in 1:n_reps) {
+    
       pheno <- setPheno(G0_pop,
                       varE = initVarE,
                       corE = matrix(c(1, CorP,
@@ -230,30 +247,8 @@ G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
   
       G0_Pheno[[paste0("trait1_rep", i)]] <- pheno@pheno[, 1]
       G0_Pheno[[paste0("trait2_rep", i)]] <- pheno@pheno[, 2]
-    }
 
-  # Add missing data
-  num_values <- prod(dim(G0_Pheno[, -1]))  # Exclude genotype_id
-  num_na <- round(0.1 * num_values)
-
-  rows <- sample(nrow(G0_Pheno), num_na, replace = TRUE)
-  cols <- sample(2:ncol(G0_Pheno), num_na, replace = TRUE)
   
-  for (i in seq_along(rows)) {
-    G0_Pheno[rows[i], cols[i]] <- NA
-  }
-
-  # Add missing data
-  num_values <- prod(dim(G0_Pheno[, -1]))  # Exclude genotype_id
-  num_na <- round(0.1 * num_values)
-
-  rows <- sample(nrow(G0_Pheno), num_na, replace = TRUE)
-  cols <- sample(2:ncol(G0_Pheno), num_na, replace = TRUE)
-
-  for (i in seq_along(rows)) {
-    G0_Pheno[rows[i], cols[i]] <- NA
-  }
-
   # Trait 1 columns (those starting with "trait1_")
   trait1_cols <- grep("^trait1_", names(G0_Pheno), value = TRUE)
   trait1_df <- G0_Pheno[, c("genotype_id", trait1_cols)]
@@ -262,11 +257,9 @@ G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
   trait2_cols <- grep("^trait2_", names(G0_Pheno), value = TRUE)
   trait2_df <- G0_Pheno[, c("genotype_id", trait2_cols)]
 
-  trait1_df$Mean <- rowMeans(trait1_df[ , -1], na.rm = T)
-  trait2_df$Mean <- rowMeans(trait2_df[ , -1], na.rm = T)
 
   New_Pheno_long_t1<-trait1_df %>%
-    pivot_longer(cols = c(-genotype_id, -Mean), names_to = "Rep", values_to = "Pheno")
+    pivot_longer(cols = c(-genotype_id), names_to = "Rep", values_to = "Pheno")
   New_Pheno_long_t1$Rep <- gsub("^V[0-9]+\\.|_rep[0-9]+$", "", New_Pheno_long_t1$Rep)
   New_Pheno_long_t1$ID <- as.numeric(New_Pheno_long_t1$genotype_id) 
   New_Pheno_long_t1 <- na.omit(New_Pheno_long_t1)
@@ -274,7 +267,7 @@ G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
   New_Pheno_long_t1$genotype_id<-NULL
 
   New_Pheno_long_t2<-trait2_df %>%
-    pivot_longer(cols = c(-genotype_id, -Mean), names_to = "Rep", values_to = "Pheno")
+    pivot_longer(cols = c(-genotype_id), names_to = "Rep", values_to = "Pheno")
   New_Pheno_long_t2$Rep <- gsub("^V[0-9]+\\.|_rep[0-9]+$", "", New_Pheno_long_t2$Rep)
   New_Pheno_long_t2$ID <- as.numeric(New_Pheno_long_t2$genotype_id)
   New_Pheno_long_t2 <- na.omit(New_Pheno_long_t2)
@@ -282,26 +275,22 @@ G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
   New_Pheno_long_t2$genotype_id<-NULL
   
 
-  
-  
   # Add linear penalty for inbreeding depression only if F > 0
   New_Pheno_long_t1 <- left_join(New_Pheno_long_t1, Inbreeding, by = "ID")
   New_Pheno_long_t2 <- left_join(New_Pheno_long_t2, Inbreeding, by = "ID")
   
-  # Apply the penalty only if F > 0
-  New_Pheno_long_t1$Pheno_Inb <- New_Pheno_long_t1$Pheno + 
-    abs(New_Pheno_long_t1$Pheno) * ifelse(New_Pheno_long_t1$F > 0, (InbDepr * New_Pheno_long_t1$F), 0)
+
+    New_Pheno_long_t1$Pheno_Inb <- New_Pheno_long_t1$Pheno + 
+      abs(New_Pheno_long_t1$Pheno) * ifelse(New_Pheno_long_t1$F > 0, (InbDepr * New_Pheno_long_t1$F), 0)
   
-  # Apply the penalty only if F > 0
-  New_Pheno_long_t2$Pheno_Inb <- New_Pheno_long_t2$Pheno + 
-    abs(New_Pheno_long_t2$Pheno) * ifelse(New_Pheno_long_t2$F > 0, (InbDepr * New_Pheno_long_t2$F), 0)
+
+    New_Pheno_long_t2$Pheno_Inb <- New_Pheno_long_t2$Pheno + 
+      abs(New_Pheno_long_t2$Pheno) * ifelse(New_Pheno_long_t2$F > 0, (InbDepr * New_Pheno_long_t2$F), 0)
   
 
   All_Pheno_long <- rbind(New_Pheno_long_t1, New_Pheno_long_t2)
+  All_Pheno_long$Mean <- All_Pheno_long$Pheno_Inb
   
-
-  
-
   # Summerize to mean values to get same number of values per trait
   Trait1_mean <- New_Pheno_long_t1 %>%
     group_by(ID) %>%
@@ -315,9 +304,72 @@ G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
     G0_Pheno <- data.frame(Trait1 = Trait1_mean$mean_pheno,
                            Trait2 = Trait2_mean$mean_pheno)
 
-  G0_pop@pheno <- as.matrix(G0_Pheno)
+    # Add the phenotypes to the pop-object
+      G0_pop@pheno <- as.matrix(G0_Pheno)
+  
+  # Save object to use in modeling
+     Pheno_mean_All <- data.frame(ID = G0_Pheno$`G0_pop@id`, Trait = G0_Pheno$Mean)
 
-  # Save G0 parameters
+
+  
+  # Save data to estimate breeding values
+  Pheno_mean_All <- data.frame(ID = G0_Pheno$`G0_pop@id`,
+                               Trait = G0_Pheno$Mean)
+
+  
+############################# Mixed model 1 ####################################
+  model <- remlf90(
+    fixed = Pheno_Inb ~ Rep,  # trait-specific means
+    genetic = list(
+      model = 'add_animal',
+      pedigree = A,
+      id = All_Pheno_long$ID
+    ),
+    data = All_Pheno_long
+  )
+  
+ #####################
+  # It is not a true multi-trait model. breedR cannot model covaraince structures 
+  # between traits. Now they are assumed to be independendent, which is very not true
+  
+  # Can try sommer again
+    # Need to format my data to handle sommer
+  
+  
+  
+  
+  ###########################
+  
+  # Estimate heritability
+  var_comp<-summary(model)
+  Va <- var_comp$var[1]
+  Ve <- var_comp$var[2]
+  h2_df<-data.frame(h2 = Va/(Va+Ve))
+  
+  
+  BV.full <- ranef(model)$genetic
+  BV <- model.matrix(model)$genetic %*% BV.full
+  All_Pheno_long$EBV <- BV@x
+  EBV_df <- All_Pheno_long %>% distinct(ID, EBV)
+  All_Pheno_long$EBV <- NULL
+  
+  EBV_new <- EBV_df[EBV_df$ID %in% G0_pop@id,]
+  G0_pop@ebv <- as.matrix(EBV_new$EBV)
+  
+
+  ###### Calculate MAF distribution ####
+  G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")
+  maf_values_df <- data.frame(Frequency = apply(G_G0, 2, calculate_maf),
+                              Gen = 0)
+  #maf_values0.05 <-maf_values[maf_values$Frequency > 0.01, ]
+  
+  
+  current_pop <- G0_pop
+  # Store populations for downstream analysis
+  pop_list <- list(G0 = G0_pop)
+  
+######################### Save initial parameters ##############################
+  # Additive genetic value   
   MeanG <- meanG(G0_pop)  
   VarA <- varG(G0_pop)
   Cor_A = cov2cor(VarA)[2, 1]
@@ -329,7 +381,7 @@ G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
                             Correlation = Cor_A)
   
   
-  
+  # Phenotypes
   Phen.Mean <- meanP(G0_pop)  
   VarP <- varP(G0_pop)
   Cor_P = cov2cor(VarP)[2, 1]
@@ -340,53 +392,31 @@ G_G0<-pullSnpGeno(G0_pop, snpChip = "Inb")-1
                          Covariance = VarP[1,2],
                          Correlation = Cor_P) 
   
-  Acc_df <- data.frame(Trait1 = cor(G0_pop@gv[,1], G0_pop@pheno[,1]),
-                       Trait2 = cor(G0_pop@gv[,2], G0_pop@pheno[,2]))
+  # Prediction accuracy 
+  Acc <- as.data.frame(cor(G0_pop@gv,G0_pop@ebv)) # Prediction Accuracy
+  Acc_df <- data.frame(Trait1 = Acc[1,1],
+                       Trait2 = Acc[2,1])
+  # Estimation bias
+  Bias_df <- data.frame(Bias = mean((G0_pop@ebv) - ((G0_pop@gv[,1]+G0_pop@gv[,2])
+                                                      /2)))
+  # Estimate disversion 
+  gv1 <- G0_pop@gv[,1]
+  gv2 <- G0_pop@gv[,2]
+  ebv <- G0_pop@ebv[,1]
   
-  Bias_df <- data.frame(Trait1 = 1,
-                        Trait2 = 1)
+  # Fit regression model
+  bias_model1 <- lm(gv1 ~ ebv)
+  bias_model2 <- lm(gv2 ~ ebv)
   
+  # Optional: view slope too
+  slope1 <- coef(bias_model1)[2]
+  slope2 <- coef(bias_model2)[2]
+  
+  
+  Dispersion_df <- data.frame(Trait1 = slope1,
+                           Trait2 = slope2)
 
-  
-####################### Large Loop Start #######################################
-
-# Save Parameters during looping
-# Initialize populations
-  Pheno_mean_All <- data.frame(ID = G0_Pheno$`G0_pop@id`, Trait = G0_Pheno$Mean)
-  Pedigree_All <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G0_pop@id,])
-  Pedigree_All$mother <- 0 # Reset pedigree for Plus trees
-  Pedigree_All$father <- 0 # Reset pedigree for Plus trees
-  Pedigree<-as.data.frame(SP$pedigree)
-  
-  A <- data.frame(ID = as.numeric(rownames(Pedigree_All)),
-                  Sire = Pedigree_All$father,
-                  Dam = Pedigree_All$mother)
-  
-  model <- remlf90(
-    fixed = Pheno_Inb ~ Rep,  # trait-specific means
-    genetic = list(
-      model = 'add_animal',
-      pedigree = A,
-      id = All_Pheno_long$ID
-    ),
-    data = All_Pheno_long,
-  )
-  
-  BV.full <- ranef(model)$genetic
-  BV <- model.matrix(model)$genetic %*% BV.full
-  All_Pheno_long$EBV <- BV@x
-  EBV_df <- All_Pheno_long %>% distinct(ID, EBV)
-  All_Pheno_long$EBV <- NULL
-  
-  EBV_new <- EBV_df[EBV_df$ID %in% G0_pop@id,]
-  G0_pop@ebv <- as.matrix(EBV_new$EBV)
-  
-  
-  current_pop <- G0_pop
-  # Store populations for downstream analysis
-  pop_list <- list(G0 = G0_pop)
-
-
+  gen= 1
 ######################### Loop through generations  ############################
 for (gen in 1:num_generations) {
   cat("Generation:", gen, "\n")
@@ -430,8 +460,8 @@ for (gen in 1:num_generations) {
   
   # Generate progeny
   # Each cross gets a random numner of progenies, with minimum 1
-  G_pops <- vector("list", nParents)
-  for (i in 1:nParents) {
+  G_pops <- vector("list", nCross)
+  for (i in 1:nCross) {
     Prog_number <- max(round(rnorm(1, mean = nProg, sd = 10)), 1)
     G_pops[[i]] <- randCross(
       pop = Parents, 
@@ -447,6 +477,23 @@ for (gen in 1:num_generations) {
   # Save population object
   pop_list[[paste0("G", gen)]] <- new_pop
   
+                             # # Record distributoin of family sizes
+                            #        df <- data.frame(
+                            #  ID = new_pop@id,        # Individual ID (as string)
+                            #  father = new_pop@father, # Father's ID
+                            #  mother = new_pop@mother,
+                            #  pheno = new_pop@pheno) # Mother's ID # Phenotype for the first trait
+   
+                           # df$Family <- paste(df$father, df$mother, sep = "_")
+                            
+                          ##  ggplot(df, aes(x = Family, y = pheno.Trait1, fill = Family)) +
+                          ##    geom_boxplot() +
+                          #    theme_minimal() +
+                          #    labs(title = "Phenotype Distribution by Family",
+                          #         x = "Family",
+                          #         y = "Phenotype") +
+                          #    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+                            
   # Update pedigree
   Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% new_pop@id,])
   Pedigree_All <- rbind(Pedigree_All, Pedigree_New)
@@ -456,48 +503,67 @@ for (gen in 1:num_generations) {
   }
 
   if (gen < 6) {
-    A <- data.frame(ID = rownames(Pedigree_All),
+    A <- data.frame(ID = as.numeric(rownames(Pedigree_All)),
                     Sire = Pedigree_All$father,
                     Dam = Pedigree_All$mother)
   
   } else {
     A <- Pedigree_All[rownames(Pedigree_All) %in% gen_ids_to_keep, ]
   
-    A <- data.frame(ID = rownames(A),
-                    sire = A$father,
-                    dam = A$mother)
+    A <- data.frame(ID = as.numeric(rownames(A)),
+                    Sire = A$father,
+                    Dam = A$mother)
 
   }
   
-  A$ID <-as.numeric(A$ID)
+  
+  A_Mat <- kinship(id = as.numeric(rownames(Pedigree_All)),
+                  dadid = Pedigree_All$father,
+                  momid = Pedigree_All$mother)
+                          
+                    indices<-which((rownames(A_Mat) %in% new_pop@id))
+                    A_Mat <-A_Mat[indices,indices]
+                    n <- nrow(A_Mat)
+                          
+                    group_coancestry <- sum(A_Mat) / (n^2)
+                    
+                    status_number <- 1 / (2*group_coancestry)
+                    
+                    Ns_new <- data.frame(Status_number = status_number,
+                                                    Coancestry = group_coancestry,
+                                                    Gen = gen)
+                    Ns_df <- rbind(Ns_df,Ns_new)
   
   
-  ################ To do ######################
-  # Add mechanism for inbreeding depression
-  # Calculate the A matrix first
   
-  #A_matrix<-2*kinship(id = A$ID, dadid = A$sire, momid = A$dam)
-  
-  #Inbreeding<-data.frame(F = (diag(A_matrix)-1),
-   #            ID = A$ID)
+  ########################## Estimate inbreeding ###############################
+                    # Add mechanism for inbreeding depression
+                          
+                      # Using the A matrix 
+        Kinship_matrix<-2*kinship(id = A$ID, dadid = A$Sire, momid = A$Dam)
+        
+        Inbreeding<-data.frame(F = (diag(Kinship_matrix)-1),
+                     ID = A$ID)
   
 
-  G_new<-pullSnpGeno(new_pop, snpChip = "Inb")-1
-  G<-A.mat(G_new, min.MAF = 0.01)
-  F_new <-(diag(G))-F_0
-  
-  F_df <- rbind(F_df,mean(diag(G)))
-  
-  Inbreeding<-data.frame(F = F_new,
-              ID = as.numeric(new_pop@id))
+                      # Using the G-matrix
+        #G_new<-pullSnpGeno(new_pop, snpChip = "Inb")-1
+        #Kinship_matrix<-A.mat(G_new, min.MAF = 0.01)
+        #F_new <-(diag(Kinship_matrix))-F_0
+        
+        
+        #Inbreeding<-data.frame(F = F_new,
+        #            ID = as.numeric(new_pop@id))
+        
+        F_df <- rbind(F_df,mean(diag(Kinship_matrix)))
   
   
   ####################### Calculate MAF Distributoin ###########################
-  G_new<-pullSnpGeno(new_pop, snpChip = "Inb")
-  maf_values_new <- data.frame(Frequency = apply(G_new, 2, calculate_maf),
-                               Gen = gen)
-
-  maf_values_df <- rbind(maf_values_df,maf_values_new) 
+          G_new<-pullSnpGeno(new_pop, snpChip = "Inb")
+          maf_values_new <- data.frame(Frequency = apply(G_new, 2, calculate_maf),
+                                       Gen = gen)
+        
+          maf_values_df <- rbind(maf_values_df,maf_values_new) 
   
   ################ Assign phenotypic values ####################################
   new_Pheno <- as.data.frame(new_pop@id)
@@ -568,7 +634,7 @@ for (gen in 1:num_generations) {
     All_Pheno_long_t1 <- left_join(All_Pheno_long_t1, Inbreeding, by = "ID")
     All_Pheno_long_t2 <- left_join(All_Pheno_long_t2, Inbreeding, by = "ID")
     
-    # Apply inbreeding penalty only if F > 0
+    ######### Apply inbreeding penalty #################
     
       # Trait 1
       All_Pheno_long_t1$Pheno_Inb <- All_Pheno_long_t1$Pheno + 
@@ -600,7 +666,8 @@ for (gen in 1:num_generations) {
   # Keep only the last 5 generations of data
   if (gen < 6) {
     
- ############################## Estimate BVs ###################################
+ ############################ Mixed model 2 ####################################
+    
     model <- remlf90(
       fixed = Pheno_Inb ~ Rep,  # trait-specific means
       genetic = list(
@@ -610,6 +677,14 @@ for (gen in 1:num_generations) {
       ),
       data = All_Pheno_long,
     )
+    
+    # Estimate heritability
+    var_comp<-summary(model)
+    Va <- var_comp$var[1]
+    Ve <- var_comp$var[2]
+    h2_new<-data.frame(h2 = Va/(Va+Ve))
+    
+    h2_df <- rbind(h2_df, h2_new)
     
     BV.full <- ranef(model)$genetic
     BV <- model.matrix(model)$genetic %*% BV.full
@@ -622,7 +697,7 @@ for (gen in 1:num_generations) {
     G5_Pheno_long <- All_Pheno_long[All_Pheno_long$ID %in% gen_ids_to_keep,]
     
 
-    # Estimate BVs using a multi-trait model
+####################### Mixed model 3 ##########################################    
     model <- remlf90(
       fixed = Pheno_Inb ~ Rep,  # trait-specific means
       genetic = list(
@@ -632,6 +707,13 @@ for (gen in 1:num_generations) {
       ),
       data = G5_Pheno_long,
     )
+    
+    var_comp<-summary(model)
+    Va <- var_comp$var[1]
+    Ve <- var_comp$var[2]
+    h2_new<-data.frame(h2 = Va/(Va+Ve))
+    
+    h2_df <- rbind(h2_df, h2_new)
     
     BV.full <- ranef(model)$genetic
     BV <- model.matrix(model)$genetic %*% BV.full
@@ -717,23 +799,33 @@ for (gen in 1:num_generations) {
                           Trait2 = Acc[2,1])
     Acc_df <- rbind(Acc_df, Acc_new)
     
-  #  Bias_new <- data.frame(Bias = mean((new_pop@gv[,1]*0.5+new_pop@gv[,2]*0.5)-new_pop@ebv))
+    Bias_new <- data.frame(Bias = mean((new_pop@ebv) - ((new_pop@gv[,1]+new_pop@gv[,2])
+                                                        /2)))
     
-    #                                   -new_pop@ebv),
-    #                       Triat1 = mean(new_pop@gv[,2]-new_pop@ebv))
-   # Bias_df <- rbind()
-
+    Bias_df <- rbind(Bias_df,Bias_new)
+    
+    # Estimate disversion 
+    gv1 <- new_pop@gv[,1]
+    gv2 <- new_pop@gv[,2]
+    ebv <- new_pop@ebv[,1]
+    
+    # Fit regression model
+    bias_model1 <- lm(gv1 ~ ebv)
+    bias_model2 <- lm(gv2 ~ ebv)
+    
+    # Optional: view slope too
+    slope1 <- coef(bias_model1)[2]
+    slope2 <- coef(bias_model2)[2]
+    
+    
+    Dispersion_new <- data.frame(Trait1 = slope1,
+                                 Trait2 = slope2)
+    
+    Dispersion_df <- rbind(Dispersion_df,Dispersion_new)
   # Update current population for next iteration
   current_pop <- new_pop
 }
 ####### Loop End #########
-
-
-
-  
-  
-  
-  
   
   
 ######################### Visualize results ####################################
@@ -746,7 +838,17 @@ for (gen in 1:num_generations) {
   plot(x = 1:(1+num_generations), y = Additive_df$Correlation, type = "l", col = "black", lwd = 3,
        xlab = "Generation", ylab = "Genetic correlation")
   
+  plot(x = 1:(1+num_generations), y = h2_df$h2, type = "l", col = "black", lwd = 3,
+       xlab = "Generation", ylab = "Estimated narrow sense heritability")
   
+  plot(x = 1:(1+num_generations), y = Ns_df$Status_number, type = "l", col = "black", lwd = 3,
+       xlab = "Generation", ylab = "Status Number")
+  
+  plot(x = 1:(1+num_generations), y = Ns_df$Coancestry, type = "l", col = "black", lwd = 3,
+       xlab = "Generation", ylab = "Group Coancestry")
+  
+  plot(x = 1:(1+num_generations), y = Bias_df$Bias, type = "l", col = "black", lwd = 3,
+       xlab = "Generation", ylab = "Bias")
   
   varRanges = range(c(Additive_df$Trait1_Var, Additive_df$Trait2_Var))
   plot(x = 1:(1+num_generations), y = Additive_df$Trait1_Var, type = "l", col = "black", lwd = 3,
@@ -784,13 +886,20 @@ for (gen in 1:num_generations) {
   legend(x = "topleft", legend = c("1", "2"), title = "Trait",
          lwd = 3, lty = c(1, 2), col = c("black", "purple"))
   
+  varRanges = range(c(Dispersion_df$Trait1, Dispersion_df$Trait2))
+  plot(x = 1:(1+num_generations), y = Dispersion_df$Trait1, type = "l", col = "black", lwd = 3,
+       xlab = "Generation", ylab = "Dispersion Bias", ylim = varRanges) 
+  lines(x = 1:(1+num_generations), y = Dispersion_df$Trait2, type = "l", col = "purple", lty = 2, lwd = 3) 
+  legend(x = "topright", legend = c("1", "2"), title = "Trait",
+         lwd = 3, lty = c(1, 2), col = c("black", "purple"))
+  
   # Selection intensities
     varRanges = range(c(intensity_EBV_df$Intensity, intensity_TBV_df$Intensity))
   plot(x = 1:(1+num_generations), y = intensity_EBV_df$Intensity, type = "l", col = "black", lwd = 3,
        xlab = "Generation", ylab = "Selection intensity", ylim = varRanges) 
-    lines(x = 1:(1+num_generations), y = intensity_TBV_df$Intensity, type = "l", col = "purple", lty = 2, lwd = 3) 
-  legend(x = "topright", legend = c("Estimated selection intensity", "True selection intensity"), title = "Trait",
-         lwd = 3, lty = c(1, 2), col = c("black", "purple"))
+    lines(x = 1:(1+num_generations), y = intensity_TBV_df$Intensity, type = "l", col = "darkred", lty = 2, lwd = 3) 
+  legend(x = "topright", legend = c("Estimated SI", "True SI"), title = "Trait",
+         lwd = 3, lty = c(1, 2), col = c("black", "darkred"))
   
   
   
@@ -828,6 +937,7 @@ for (gen in 1:num_generations) {
 Sim <- data.frame(Chromosomes = PaChr,
                   QTLs = nQtl,
                   SNPs = nSNP,
+                  nSNP2 = nSNP2,
                   Chr.Size.bp = ChrLen,
                   Chr.Size.mo = PG_Chr_M,
                   Mut.Rate = ConMR,
@@ -836,14 +946,19 @@ Sim <- data.frame(Chromosomes = PaChr,
                   BurnInGen = nGenBurnIn,
                   BurnInCross = nCrossBurnIn,
                   BurnInProg = nProgBurnIn,
+                  BreedingGens = num_generations,
                   ParentsNr = nParents,
                   FamiliesNr = nCross,
                   ProgenyNr = nProg,
                   Trait = Trait,
                   Trait.mean = initMeanG,
-                  Trait.varA = initVarG,
+                  GenVariance = initVarG,
+                  EnvVariance = initVarE,
+                  GeneticCorrelation = CorA, 
+                  PhenotypicCorrelation = CorP, 
                   h2_G0 = h2_G0,
                   h2_G1 = h2_G1,
+                  InbreedingDepression = InbDepr,
                   MatePlan = MatePlan,
                   Gamma = GAMMA,
                   GammaShape = GShape,
