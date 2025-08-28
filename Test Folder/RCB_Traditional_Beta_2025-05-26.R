@@ -12,7 +12,7 @@ library(caret)
 library(doParallel)
 library(dplyr)
 library(pedigree)
-library(gridExtra) 
+library(gridExtra)
 library(purrr)
 library(ggplot2)
 library(tidyr)
@@ -67,7 +67,9 @@ initVarG = (CV * initMeanG)^2  # Initial trait genetic variance
 
 # Dominance and Inbreeding Depression
 ID = -0.35 # Source:
-
+meanDD = ID/(2*nQtl*PaChr) # 2 time the number of QTLs
+initMeanD = c(meanDD*initMeanG[1],meanDD*initMeanG[2])
+initVarD = initVarG*0.2
 
 # Error variance
 initVarE = 4*(CV * initMeanG)^2
@@ -78,7 +80,12 @@ CorA <- 0.9
 CorP <- 0.8
 
 # Heritability
-h2 = 0.2
+h2_G0 = 0.2
+h2_G1 = 0.2
+
+# Rate of inbreeding deprssion
+InbDepr = -0.5 # Source:
+
 
 # Founder Parameters    
 # Founder Population
@@ -156,21 +163,24 @@ SP$restrSegSites(overlap = FALSE) # Ensure QTLs and SNPs do not overlap
 SP$setTrackPed(TRUE)
 
 # Add trait
-SP$addTraitA(nQtlPerChr   = nQtl,
+SP$addTraitAD(nQtlPerChr   = nQtl,
              mean         = initMeanG,
+             meanDD       = initMeanD, 
              var          = initVarG,
+             varDD        = initVarD,
              gamma        = T,
              shape        = GShape,
              corA         = matrix(c(1, CorA,
                                      CorA, 1), nrow=2))
+#             corDD        = matrix(c(1, CorA,
+#                              CorA, 1), nrow=2)) # Add AxA correlation between two height measurements
 
-# Specify default values for setPheno
 # Define heritabilities for both traits (this is REQUIRED before using varE)
-SP$setVarE(h2 = c(h2, h2))
+SP$setVarE(h2 = c(0.2, 0.2))
 
 # Set residual covariance matrix used by the setPheno function
-SP$setVarE(varE = matrix(c(1, CorP,
-                           CorP, 1), nrow=2))
+SP$setVarE(varE = matrix(c(1, 0.8,
+                           0.8, 1), nrow=2))
 
 # Create new pop object
 G0_pop = newPop(founderPop)
@@ -183,6 +193,10 @@ VarA_list1<-list()
 VarA_G0 <- varA(G0_pop)
 VarA_list1 <- c(VarA_list1, VarA_G0[1,1])
 
+VarD_list1<-list()
+VarD_G0 <- varD(G0_pop)
+VarD_list1 <- c(VarD_list1, VarD_G0[1,1])
+
 MeanA_list1<-list()
 MeanA_G0 <- meanG(G0_pop)
 MeanA_list1 <- c(MeanA_list1, MeanA_G0[1])
@@ -190,6 +204,10 @@ MeanA_list1 <- c(MeanA_list1, MeanA_G0[1])
 VarA_list2<-list()
 VarA_G0 <- varA(G0_pop)
 VarA_list2 <- c(VarA_list2, VarA_G0[2,2])
+
+VarD_list2<-list()
+VarD_G0 <- varD(G0_pop)
+VarD_list2 <- c(VarD_list2, VarD_G0[2,2])
 
 MeanA_list2<-list()
 MeanA_G0 <- meanG(G0_pop)
@@ -204,30 +222,32 @@ for (i in 1:nGenBurnIn) {
     ignoreSexes = TRUE)      # Ignore sexes in crossing
   VarA_G0 <- varA(G0_pop)
   VarA_list1 <- c(VarA_list1, VarA_G0[1,1])
-
+  VarD_G0 <- varD(G0_pop)
+  VarD_list1 <- c(VarD_list1, VarD_G0[1,1])
   MeanA_G0 <- meanG(G0_pop)
   MeanA_list1 <- c(MeanA_list1, MeanA_G0[1])
   
   VarA_G0 <- varA(G0_pop)
   VarA_list2 <- c(VarA_list2, VarA_G0[2,2])
-
+  VarD_G0 <- varD(G0_pop)
+  VarD_list2 <- c(VarD_list2, VarD_G0[2,2])
   MeanA_G0 <- meanG(G0_pop)
   MeanA_list2 <- c(MeanA_list2, MeanA_G0[2])
 }
 
 
-time <- seq_along(VarA_list1) 
+time <- seq_along(VarA_list) 
 
 df <- data.frame(
-  Time = rep(time, 2),  # Repeat time for both parameters
-  Value = c(unlist(VarA_list1), unlist(MeanA_list1)),  # Combine the values of both parameters
-  Parameter = rep(c("VarA", "MeanG"), each = length(time))  # Label each parameter
+  Time = rep(time, 3),  # Repeat time for both parameters
+  Value = c(unlist(VarA_list1), unlist(MeanA_list1), unlist(VarD_list1)),  # Combine the values of both parameters
+  Parameter = rep(c("VarA", "MeanG", "VarD"), each = length(time))  # Label each parameter
 )
 
 ggplot(df, aes(x = Time, y = Value, color = Parameter)) +
   geom_line(linewidth = 1) +         # Lines for both parameters
   geom_point(size = 1) + 
-  scale_color_manual( values = c("VarA" = "darkgreen",  "MeanG" = "darkred")  # Custom colors
+  scale_color_manual( values = c("VarA" = "darkgreen", "VarD" = "orange", "MeanG" = "darkred")  # Custom colors
   ) +# Points for both parameters
   labs(title = "",
        x = "Generation",
@@ -237,23 +257,28 @@ ggplot(df, aes(x = Time, y = Value, color = Parameter)) +
   theme_minimal()
 
 df <- data.frame(
-  Time = rep(time, 2),  # Repeat time for both parameters
-  Value = c(unlist(VarA_list2), unlist(MeanA_list2)),  # Combine the values of both parameters
-  Parameter = rep(c("VarA", "MeanG"), each = length(time))  # Label each parameter
+  Time = rep(time, 3),  # Repeat time for both parameters
+  Value = c(unlist(VarA_list2), unlist(MeanA_list2), unlist(VarD_list2)),  # Combine the values of both parameters
+  Parameter = rep(c("VarA", "MeanG", "VarD"), each = length(time))  # Label each parameter
 )
 
 ggplot(df, aes(x = Time, y = Value, color = Parameter)) +
   geom_line(linewidth = 1) +         # Lines for both parameters
   geom_point(size = 1) + 
-  scale_color_manual( values = c("VarA" = "darkgreen",  "MeanG" = "darkred")  # Custom colors
+  scale_color_manual( values = c("VarA" = "darkgreen", "VarD" = "orange", "MeanG" = "darkred")  # Custom colors
   ) +# Points for both parameters
   labs(title = "",
        x = "Generation",
-       y = "Value", 
+       y = "Value",
        color = "Parameter"
   ) +
   theme_minimal()
 
+DDD<-dd(G0_pop)
+genicVarD(G0_pop)
+varD(G0_pop)
+varA(G0_pop)
+genicVarA(G0_pop)
 
 ###################### G0 Founder generation ######################################
 
@@ -290,6 +315,9 @@ G0_Pheno <- data.frame()
 
 for (i in 1:1) {
   pheno <- setPheno(G0_pop,
+                    varE = initVarE,
+                    corE = matrix(c(1, CorP,
+                                    CorP, 1), nrow = 2),
                     rep = 1,
                     simParam = NULL,
                     onlyPheno = T)
@@ -350,6 +378,8 @@ MeanG <- meanG(G0_pop)
 VarA <- varA(G0_pop)
 Cor_A = cov2cor(VarA)[2, 1]
 
+# Dominance genetic value
+VarD <- varD(G0_pop)
 
 # Phenotypes
 Phen.Mean <- meanP(G0_pop)  
@@ -411,6 +441,7 @@ GLOBAL_trait <- data.frame(Trait1_h2_est = Est_h2_1,
                         Trait1_h2 = True_h2_1,
                         Trait1_MeanG = MeanG[1],
                         Trait1_VarA = VarA[1,1],
+                        Trait1_VarD = VarD[1,1],
                         Trait1_MeanP = Phen.Mean[1],
                         Trait1_VarP = VarP[1,1],
                         Trait1_Acc = Acc[1,1],
@@ -424,6 +455,7 @@ GLOBAL_trait <- data.frame(Trait1_h2_est = Est_h2_1,
                         Trait2_h2 = True_h2_2,
                         Trait2_MeanG = MeanG[2],
                         Trait2_VarA = VarA[2,2],
+                        Trait2_VarD = VarD[2,2],
                         Trait2_MeanP = Phen.Mean[2],
                         Trait2_VarP = VarP[2,2],
                         Trait2_Acc = Acc[2,2],
@@ -508,6 +540,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
   
     for (i in 1:10) {
       pheno <- setPheno(G1_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -568,6 +603,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G1_pop)  
     VarA <- varA(G1_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G1_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G1_pop)  
@@ -674,6 +712,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                                Trait1_h2 = True_h2_1,
                                Trait1_MeanG = MeanG[1],
                                Trait1_VarA = VarA[1,1],
+                               Trait1_VarD = VarD[1,1],
                                Trait1_MeanP = Phen.Mean[1],
                                Trait1_VarP = VarP[1,1],
                                Trait1_Acc = Acc[1,1],
@@ -687,6 +726,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                                Trait2_h2 = True_h2_2,
                                Trait2_MeanG = MeanG[2],
                                Trait2_VarA = VarA[2,2],
+                               Trait2_VarD = VarD[2,2],
                                Trait2_MeanP = Phen.Mean[2],
                                Trait2_VarP = VarP[2,2],
                                Trait2_Acc = Acc[2,2],
@@ -796,6 +836,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G2_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -856,6 +899,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G2_pop)  
     VarA <- varA(G2_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G2_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G2_pop)  
@@ -961,6 +1007,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -974,6 +1021,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -1084,6 +1132,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G3_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -1144,6 +1195,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G3_pop)  
     VarA <- varA(G3_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G3_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G3_pop)  
@@ -1250,6 +1304,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -1263,6 +1318,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -1374,6 +1430,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G4_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -1434,6 +1493,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G4_pop)  
     VarA <- varA(G4_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G4_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G4_pop)  
@@ -1540,6 +1602,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -1553,6 +1616,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -1663,6 +1727,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G5_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -1723,6 +1790,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G5_pop)  
     VarA <- varA(G5_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G5_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G5_pop)  
@@ -1829,6 +1899,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -1842,6 +1913,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -1961,6 +2033,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G6_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -2022,6 +2097,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     VarA <- varA(G6_pop)
     Cor_A = cov2cor(VarA)[2, 1]
     
+    # Dominance genetic value
+    VarD <- varD(G6_pop)
+    
     # Phenotypes
     Phen.Mean <- meanP(G6_pop)  
     VarP <- varP(G6_pop)
@@ -2082,6 +2160,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -2095,6 +2174,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -2213,6 +2293,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G7_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -2273,6 +2356,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G7_pop)  
     VarA <- varA(G7_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G7_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G7_pop)  
@@ -2379,6 +2465,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -2392,6 +2479,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -2510,6 +2598,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G8_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -2570,6 +2661,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G8_pop)  
     VarA <- varA(G8_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G8_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G8_pop)  
@@ -2676,6 +2770,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -2689,6 +2784,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -2808,6 +2904,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G9_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -2868,6 +2967,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G9_pop)  
     VarA <- varA(G9_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G9_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G9_pop)  
@@ -2974,6 +3076,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -2987,6 +3090,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -3107,6 +3211,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     for (i in 1:10) {
       pheno <- setPheno(G10_pop,
+                        varE = initVarE,
+                        corE = matrix(c(1, CorP,
+                                        CorP, 1), nrow = 2),
                         rep = 1,
                         simParam = NULL,
                         onlyPheno = T)
@@ -3167,6 +3274,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     MeanG <- meanG(G10_pop)  
     VarA <- varA(G10_pop)
     Cor_A = cov2cor(VarA)[2, 1]
+    
+    # Dominance genetic value
+    VarD <- varD(G10_pop)
     
     # Phenotypes
     Phen.Mean <- meanP(G10_pop)  
@@ -3273,6 +3383,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_h2 = True_h2_1,
                             Trait1_MeanG = MeanG[1],
                             Trait1_VarA = VarA[1,1],
+                            Trait1_VarD = VarD[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
                             Trait1_Acc = Acc[1,1],
@@ -3287,6 +3398,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_h2 = True_h2_2,
                             Trait2_MeanG = MeanG[2],
                             Trait2_VarA = VarA[2,2],
+                            Trait2_VarD = VarD[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
                             Trait2_Acc = Acc[2,2],
@@ -3406,6 +3518,13 @@ plot(x = c(1:11), y = GLOBAL_trait$Trait1_MeanG, type = "l", col = "black", lwd 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
 
+# Dominance variance
+varRanges = range(c(GLOBAL_trait$Trait1_VarD, GLOBAL_trait$Trait2_VarD))
+plot(x = c(1:11), y = GLOBAL_trait$Trait1_VarD, type = "l", col = "black", lwd = 3,
+     xlab = "Generation", ylab = "VarD", ylim = varRanges) +
+  lines(x = c(1:11), y = GLOBAL_trait$Trait2_VarD, type = "l", col = "purple", lty = 2, lwd = 3) 
+legend(x = "topleft", legend = c("1", "2"), title = "Trait",
+       lwd = 3, lty = c(1, 2), col = c("black", "purple"))
 
 # Phenotypic variance
 varRanges = range(c(GLOBAL_trait$Trait1_VarP, GLOBAL_trait$Trait2_VarP))
@@ -3543,7 +3662,8 @@ Sim <- data.frame(Chromosomes = PaChr,
                   EnvVariance = initVarE,
                   GeneticCorrelation = CorA, 
                   PhenotypicCorrelation = CorP, 
-                  h2 = h2,
+                  h2_G0 = h2_G0,
+                  h2_G1 = h2_G1,
                   InbreedingDepression = InbDepr,
                   MatePlan = MatePlan,
                   Gamma = GAMMA,
@@ -3551,13 +3671,5 @@ Sim <- data.frame(Chromosomes = PaChr,
                   SegSite = SegSite)
 
 # Simulation Parameters
-filename <- paste0("RCB_Init_Parameters", today_date, ".txt")
+filename <- paste0("Sim_Parameters_Ne1000_MultiGen", today_date, ".txt")
 write.table(Sim, filename, quote = F, col.names = T, row.names = F, sep = "\t")
-
-# Record breeding progress
-filename <- paste0("RCB_Trait_Data", today_date, ".txt")
-write.table(GLOBAL_trait, filename, quote = F, col.names = T, row.names = F, sep = "\t")
-
-# Record diversity measures
-filename <- paste0("RCB_Diversity", today_date, ".txt")
-write.table(GLOBAL_diversity, filename, quote = F, col.names = T, row.names = F, sep = "\t")
