@@ -19,7 +19,7 @@
 
             # Add mechanism for removing measurements that decrease the height
             
-            # Should cross-che
+            # G2 phenotypes are not kept at least in generation 6...
 
 # Somewhere along the way, Global_pheno was copied to Global_Pheno_5
 # And it only has the phenotypes from the last generation
@@ -339,6 +339,8 @@ G0_Pheno_mean<- G0_Pheno %>%
 
 G0_Pheno_mean$ID <- as.character(G0_Pheno_mean$ID)
 GLOBAL_Phenotypes <- G0_Pheno
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
 
 # Estimate inbreeding from A-matrix
 Inb <- as.data.frame(diag(Kinship_matrix)-1)
@@ -586,8 +588,12 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
     GLOBAL_Phenotypes <- rbind(G0_Pheno_mean, New_Pheno_mean)
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
@@ -855,6 +861,8 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     #### Model ####
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
@@ -931,7 +939,12 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
     GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     #### Model 2 ####
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
@@ -1199,6 +1212,8 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
      # No new phenotypes, only new marker data
 
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     GLOBAL_Phenotypes$ID <- colnames(G)
   
@@ -1281,10 +1296,13 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
     GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
     
-    
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
   #### Model 2 ####
       y<-as.matrix(GLOBAL_Phenotypes[,4:5])
@@ -1553,6 +1571,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     #### Model ####
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
     
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
     GLOBAL_Phenotypes$ID <- colnames(G)
     
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
@@ -1633,11 +1654,12 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+
+    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model 2 ####
-    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
-
     new_model<-mkr(y,G)
     
     # Save EBVs
@@ -1901,6 +1923,8 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     #### Model ####
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     GLOBAL_Phenotypes$ID <- colnames(G)
     
@@ -1979,8 +2003,14 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
     GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
     GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
+   
+     sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     #### Model 2 ####
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
@@ -2258,8 +2288,14 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Select only phenotypes from past 5 generations
     GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
     
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
     #### Model ####
     GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
     
@@ -2336,9 +2372,19 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
     GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
+    ##### (!)This is where data disappear, only keeping the last 5 generations. ####
+    # Global_Pheno and Global_Pheno_5 become equivalent
+    # Should not be a problem neccesarily, but I would still like to keep all phenotype data
+    
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
     
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
     GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     #### Model 2 ####
     y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])

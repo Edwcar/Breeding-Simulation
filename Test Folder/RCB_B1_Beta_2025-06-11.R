@@ -21,6 +21,9 @@
 
 # Should cross-check with 
 
+# Still way to many missing phenotype values
+
+
 options(scipen = 999)  # Avoid scientific notation globally
 
 # Date of simulation
@@ -335,6 +338,9 @@ G0_Pheno_mean<- G0_Pheno %>%
 
 G0_Pheno_mean$ID <- as.character(G0_Pheno_mean$ID)
 GLOBAL_Phenotypes <- G0_Pheno
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
+
 
 # Estimate inbreeding from A-matrix
 Inb <- as.data.frame(diag(Kinship_matrix)-1)
@@ -582,9 +588,13 @@ New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb 
 New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
 
 GLOBAL_Phenotypes <- rbind(G0_Pheno_mean, New_Pheno_mean)
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
+
 
 GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
-
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
 
 y<-as.matrix(GLOBAL_Phenotypes[,4:5])
 
@@ -724,6 +734,9 @@ dim(G)
 #### Model ####
 GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
 GLOBAL_Phenotypes$ID <- row.names(G)
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
+
 
 y<-as.matrix(GLOBAL_Phenotypes[,4:5])
 
@@ -800,7 +813,13 @@ GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
 GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
 GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
 
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
+
 GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
 
 #### Model 2 ####
 y<-as.matrix(GLOBAL_Phenotypes[,4:5])
@@ -923,7 +942,13 @@ G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
 
 GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
 
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
+
 GLOBAL_Phenotypes$ID <- colnames(G)
+
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
 
 y<-as.matrix(GLOBAL_Phenotypes[,4:5])
 
@@ -1004,17 +1029,26 @@ GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
 GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
 GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
 
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
+
 GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
 
+
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
 
 #GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
 
 #### Model 2 ####
-y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+
 
 G3_pheno <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% G3_pop@id,]
 
-GLOBAL_Phenotypes[GLOBAL_Phenotypes$Trait2=="NA",]
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
+
+y<-as.matrix(GLOBAL_Phenotypes[,4:5])
 
 new_model<-mkr(y,G)
 
