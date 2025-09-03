@@ -42,7 +42,7 @@ SegSite = 100000
 Trait = "A"         # Make the trait completely additive for simplicity
 
 # Nr of QTLs per chromosome
-nQtl =  1000 #round(500/PaChr)   #Source: Hall et al., (2016) https://doi.org/10.1007/s11295-016-1073-0
+nQtl =  round(500/PaChr)   #Source: Hall et al., (2016) https://doi.org/10.1007/s11295-016-1073-0
 # Assume growth trait
 
 #Distribution of QTL effects
@@ -55,7 +55,7 @@ GShape = 0.5
 # Height at 7 and 15 years
 
 initMeanG = c(200,800)  
-CV = 0.3 # The standard deviation ~ 30 % of the mean 
+CV = 0.1 # The standard deviation ~ 30 % of the mean 
 initVarG = (CV * initMeanG)^2  # Initial trait genetic variance
 
 # Dominance and Inbreeding Depression
@@ -75,10 +75,10 @@ h2 = 0.2
 
 # Founder Parameters    
 # Founder Population
-nFounders = 100   # Number of founders in the population
-neFounders = 50   # Effective population size of founders
+nFounders = 200   # Number of founders in the population
+neFounders = 100   # Effective population size of founders
 
-nGenBurnIn <- 10   # Number of descrete burn-in generations
+nGenBurnIn <- 100   # Number of descrete burn-in generations
 nCrossBurnIn <- 100 # Number of crosses within each burn-in generation
 nProgBurnIn <- 10
 
@@ -106,7 +106,7 @@ minMAF = 0.01  # Minimum MAF for inclusion
 
 
 ##################### Number of generations to simulate ########################
-nGen <- 4   # (after G0)
+nGen <- 5   # (after G0)
 
 ############################## Functions #######################################
 # Calculating MAF
@@ -492,7 +492,7 @@ for (gen in 2:(nGen+1)) {
 ############################ Output ############################
 # Compute genetic variance per trait for all generations
 
-gen_list[[6]]<-NULL
+gen_list[[gen]]<-NULL
 
 results <- data.frame()
 wf_results <- data.frame()   # per-family WF accuracies
