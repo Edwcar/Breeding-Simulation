@@ -1,11 +1,40 @@
 # AlphaSim Simulation 
 
+# Scenario B1
+# Blind Trauncation Selection GS selection 
+
+            # Ideas
+            # Add genetic gain relative to the founder population in percentage,
+            # for each new generation
+
+            # Compare estimates with AsremlR
+
+            # Only one phenotype  from a particular generation is available 
+            # at selection within that Generation
+
+            # Rolling front
+                # How can we do within-family selection with rolling front?
+                # First pick the best 50 families across all generations, 
+                # and then select within them?
+
+            # Add mechanism for removing measurements that decrease the height
+            
+            # G2 phenotypes are not kept at least in generation 6...
+
+# Somewhere along the way, Global_pheno was copied to Global_Pheno_5
+# And it only has the phenotypes from the last generation
+
+
+options(scipen = 999)  # Avoid scientific notation globally
+
+
+
 # Date of simulation
 today_date <- paste(format(Sys.Date(), "%Y-%m-%d"))
 
 #### Load Packages ####
 library(AlphaSimR)
-library(pedigree)
+library(pedigree) 
 library(rrBLUP)
 library(ASRgenomics)
 library(caret)
@@ -69,7 +98,7 @@ ID = -0.35 # Source:
 
 
 # Error variance
-initVarE = 4*(CV * initMeanG)^2
+initVarE = 4*(CV * initMeanG)^2 
 
 # Additve genetic correlation between traits
 CorA <- 0.9
@@ -97,18 +126,19 @@ nParents = 10   # Number of parents to be selected
 nCross = 20     # Number of families to create from Parents
 nProg = 10      # Number of progeny per cross
 sdFam = 5
+
 # Mating schemes
 MatePlan = "RandCross"
 
 # Phenotyping efforts
-ramets = 12 # Ramets per site
+Ramets <- 12
 
 # Number of generations to simulate
 # Define number of generations
 
 # Genotyping Parameters
 # SNP chip for GS
-nSNP = 100     # Nr of SNPs per chromosome
+nSNP = 1000     # Nr of SNPs per chromosome
 minMAF = 0.01  # Minimum MAF for inclusion
 
 
@@ -278,6 +308,9 @@ G_new<-pullSnpGeno(G0_pop)
 maf_values_df <- data.frame(Frequency = apply(G_new, 2, calculate_maf),
                             Gen = "G0")
 
+M_G0<-pullSnpGeno(G0_pop, snpChip = 1)-1
+G = A.mat(M_G0, impute.method = "mean", min.MAF = 0.01)
+
 # Add first phenotypes
 G0_Pheno <- data.frame()
 
@@ -294,6 +327,7 @@ for (i in 1:1) {
   )
 }
 
+
 G0_Pheno$Rep<-NULL
 
 G0_Pheno_mean<- G0_Pheno %>%
@@ -305,6 +339,8 @@ G0_Pheno_mean<- G0_Pheno %>%
 
 G0_Pheno_mean$ID <- as.character(G0_Pheno_mean$ID)
 GLOBAL_Phenotypes <- G0_Pheno
+sum(is.na(GLOBAL_Phenotypes$Trait1))
+length(GLOBAL_Phenotypes$Trait1)
 
 # Estimate inbreeding from A-matrix
 Inb <- as.data.frame(diag(Kinship_matrix)-1)
@@ -416,8 +452,9 @@ GLOBAL_trait <- data.frame(Trait1_h2_est = Est_h2_1,
                         Trait1_VarA = VarA[1,1],
                         Trait1_MeanP = Phen.Mean[1],
                         Trait1_VarP = VarP[1,1],
+                        Trait1_Acc_Blind = NA,
                         Trait1_Acc = Acc[1,1],
-                        Trait1_WF_Acc = 0,
+                        Trait1_WF_Acc = NA,
                         Trait1_Bias = Bias_1,
                         Trait1_Dispersion = slope1,
                         Trait1_SI_est = EBV_Intensity_1,
@@ -429,8 +466,9 @@ GLOBAL_trait <- data.frame(Trait1_h2_est = Est_h2_1,
                         Trait2_VarA = VarA[2,2],
                         Trait2_MeanP = Phen.Mean[2],
                         Trait2_VarP = VarP[2,2],
+                        Trait2_Acc_Blind = NA,
                         Trait2_Acc = Acc[2,2],
-                        Trait2_WF_Acc = 0,
+                        Trait2_WF_Acc = NA,
                         Trait2_Bias = Bias_2,
                         Trait2_Dispersion = slope2,
                         Trait2_SI_est = EBV_Intensity_2,
@@ -503,22 +541,25 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
   
   maf_values_df <- rbind(maf_values_df,maf_values_new) 
   
+  M_G<-pullSnpGeno(G1_pop, snpChip = 1)-1
+  M <- rbind(M_G0, M_G)
+  G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+  
+  
   ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
   # Should I use the same initial error variance here?
   
   
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G1_pop,
                         rep = 1,
                         corE = E,
                         simParam = NULL,
                         onlyPheno = T)
-      New_Pheno <- rbind(
-        New_Pheno,
-        data.frame(ID = G1_pop@id, Rep = i, Pheno = pheno)
-      )
+      New_Pheno <- rbind(New_Pheno,
+        data.frame(ID = G1_pop@id, Rep = i, Pheno = pheno))
     }
     
     New_Pheno$Rep<-NULL
@@ -547,8 +588,12 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
     GLOBAL_Phenotypes <- rbind(G0_Pheno_mean, New_Pheno_mean)
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
     
     
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
@@ -696,6 +741,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                                Trait1_MeanP = Phen.Mean[1],
                                Trait1_VarP = VarP[1,1],
                                Trait1_Acc = Acc[1,1],
+                               Trait1_Acc_Blind = NA,
                                Trait1_WF_Acc = WF_Acc1,
                                Trait1_Bias = Bias_1,
                                Trait1_Dispersion = slope1,
@@ -709,6 +755,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                                Trait2_MeanP = Phen.Mean[2],
                                Trait2_VarP = VarP[2,2],
                                Trait2_Acc = Acc[2,2],
+                               Trait2_Acc_Blind = NA,
                                Trait2_WF_Acc = WF_Acc2,
                                Trait2_Bias = Bias_2,
                                Trait2_Dispersion = slope2,
@@ -771,7 +818,8 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     GLOBAL_diversity <- rbind(GLOBAL_diversity, new_diversity)
     
 #### G2 #####
-  
+# Start of blind genomic selection  
+    
     # Generate progeny
     # Each cross gets a random numner of progenies, with minimum 1
     G_pops <- vector("list", nCross)
@@ -787,9 +835,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     # Combine all families into one pop-object
     G2_pop <- do.call(c, G_pops)
-    
-    
-    Bv <- bv(G2_pop)
     
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G2_pop@id,])
@@ -807,22 +852,55 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G2_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    #### Blind selection of a subpart of the families
+    # No new phenotypes, only new marker data
+    
+    #### Model ####
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G2_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G2_pop@id), ]
+    G2_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G2_pop),G2_pop@ebv)
+  
+    # The select function requires that phenotypes exist
+    G2_pop@pheno <- matrix(0, nrow = nInd(G2_pop), ncol = 2)
+    
+    
+    ##### Select blindly ######
+    G2_pop <- selectWithinFam(G2_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+ 
+  
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G2_pop,
                         rep = 1,
                         corE = E,
                         simParam = NULL,
                         onlyPheno = T)
-      New_Pheno <- rbind(
-        New_Pheno,
-        data.frame(ID = G2_pop@id, Rep = i, Pheno = pheno)
-      )
+      New_Pheno <- rbind(New_Pheno,
+        data.frame(ID = G2_pop@id, Rep = i, Pheno = pheno))
     }
     
     New_Pheno$Rep<-NULL
@@ -850,22 +928,37 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    #### Model 2 ####
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G2_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G2_pop@id), ]
     G2_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G2_pop@id), ]
     G2_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -907,6 +1000,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                         TBV2 = Bv[,2],
                         EBV1 = G2_pop@ebv[,1],
                         EBV2 = G2_pop@ebv[,2])
+    
     WF_df$Family <- as.integer(interaction(WF_df$Mum, WF_df$Dad, drop = TRUE))
     
     summary_df <- WF_df %>%
@@ -997,6 +1091,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -1010,6 +1105,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -1079,7 +1175,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Each cross gets a random numner of progenies, with minimum 1
     G_pops <- vector("list", nCross)
     for (i in 1:nCross) {
-      Prog_number <- max(round(rnorm(1, mean = nProg, sd = sdFam)), 1)
+      Prog_number <- max(round(rnorm(1, mean = nProg, sd = sdFam)), 1)             # Need in intermediate G object?
       G_pops[[i]] <- randCross(
         pop = Parents, 
         nCrosses = 1, 
@@ -1090,9 +1186,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     # Combine all families into one pop-object
     G3_pop <- do.call(c, G_pops)
-    
-    # Save New breeding values
-    Bv <- bv(G3_pop)
     
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G3_pop@id,])
@@ -1110,13 +1203,52 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G3_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    
+    #### Blind selection of a subpart of the families
+     # No new phenotypes, only new marker data
+
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    GLOBAL_Phenotypes$ID <- colnames(G)
+  
+    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+  
+
+    #### Model ####
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G3_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G3_pop@id), ]
+    G3_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G3_pop),G3_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G3_pop@pheno <- matrix(0, nrow = nInd(G3_pop), ncol = 2)
+                            
+    
+    ##### Select blindly ######
+    G3_pop <- selectWithinFam(G3_pop,                                           # If the number of progenies are less than nProg/2 
+                               nInd = (nProg/2),                                # then that whole family will be selected  
+                               use = "ebv",
+                               selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
+  
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G3_pop,
                         rep = 1,
                         corE = E,
@@ -1153,18 +1285,33 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
-    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+  #### Model 2 ####
+      y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G3_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G3_pop@id), ]
@@ -1210,6 +1357,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                         TBV2 = Bv[,2],
                         EBV1 = G3_pop@ebv[,1],
                         EBV2 = G3_pop@ebv[,2])
+    
     WF_df$Family <- as.integer(interaction(WF_df$Mum, WF_df$Dad, drop = TRUE))
     
     summary_df <- WF_df %>%
@@ -1301,6 +1449,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -1314,6 +1463,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -1396,9 +1546,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Combine all families into one pop-object
     G4_pop <- do.call(c, G_pops)
     
-    # Save New breeding values
-    Bv <- bv(G4_pop)
-    
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G4_pop@id,])
     Pedigree_All <- rbind(Pedigree_All, Pedigree_New)
@@ -1415,13 +1562,49 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G4_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    #### Blind selection of a subpart of the families
+    
+    #### Model ####
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    GLOBAL_Phenotypes$ID <- colnames(G)
+    
+    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G4_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G4_pop@id), ]
+    G4_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G4_pop),G4_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G4_pop@pheno <- matrix(0, nrow = nInd(G4_pop), ncol = 2)
+    
+    ##### Select blindly ######
+    G4_pop <- selectWithinFam(G4_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
     
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G4_pop,
                         rep = 1,
                         corE = E,
@@ -1458,22 +1641,35 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
+    
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    #### Model 2 ####
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G4_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G4_pop@id), ]
     G4_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G4_pop@id), ]
     G4_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -1606,6 +1802,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -1619,6 +1816,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -1700,8 +1898,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Combine all families into one pop-object
     G5_pop <- do.call(c, G_pops)
     
-    # Save New breeding values
-    Bv <- bv(G5_pop)
     
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G5_pop@id,])
@@ -1719,13 +1915,48 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G5_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    #### Blind selection of a subpart of the families
+    
+    #### Model ####
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    GLOBAL_Phenotypes$ID <- colnames(G)
+    
+    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G5_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G5_pop@id), ]
+    G5_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G5_pop),G5_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G5_pop@pheno <- matrix(0, nrow = nInd(G5_pop), ncol = 2)
+    
+    ##### Select blindly ######
+    G5_pop <- selectWithinFam(G5_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
     
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G5_pop,
                         rep = 1,
                         corE = E,
@@ -1762,22 +1993,38 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
+   
+     sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    #### Model 2 ####
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G5_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G5_pop@id), ]
     G5_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G5_pop@id), ]
     G5_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -1910,6 +2157,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -1923,6 +2171,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -2005,9 +2254,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Combine all families into one pop-object
     G6_pop <- do.call(c, G_pops)
     
-    # Save New breeding values
-    Bv <- bv(G6_pop)
-    
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G6_pop@id,])
     Pedigree_All <- rbind(Pedigree_All, Pedigree_New)
@@ -2032,13 +2278,53 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G6_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    #### Blind selection of a subpart of the families
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    #### Model ####
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G6_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G6_pop@id), ]
+    G6_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G6_pop),G6_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G6_pop@pheno <- matrix(0, nrow = nInd(G6_pop), ncol = 2)
+    
+    ##### Select blindly ######
+    G6_pop <- selectWithinFam(G6_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G6_pop,
                         rep = 1,
                         corE = E,
@@ -2075,22 +2361,44 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
-    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    ##### (!)This is where data disappear, only keeping the last 5 generations. ####
+    # Global_Pheno and Global_Pheno_5 become equivalent
+    # Should not be a problem neccesarily, but I would still like to keep all phenotype data
+    
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    sum(is.na(GLOBAL_Phenotypes$Trait1))
+    length(GLOBAL_Phenotypes$Trait1)
+    
+    #### Model 2 ####
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G6_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G6_pop@id), ]
     G6_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G6_pop@id), ]
     G6_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -2132,6 +2440,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                         TBV2 = Bv[,2],
                         EBV1 = G6_pop@ebv[,1],
                         EBV2 = G6_pop@ebv[,2])
+    
     WF_df$Family <- as.integer(interaction(WF_df$Mum, WF_df$Dad, drop = TRUE))
     
     summary_df <- WF_df %>%
@@ -2170,7 +2479,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     grid.arrange(T1_plot,T2_plot)
     
     # Prediction Bias
-    Bv <- bv(G6_pop)
     Bias_1 <- mean(G6_pop@ebv[,1] - Bv[1])
     Bias_2 <- mean(G6_pop@ebv[,2] - Bv[2])
     
@@ -2223,6 +2531,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -2236,6 +2545,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -2317,9 +2627,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Combine all families into one pop-object
     G7_pop <- do.call(c, G_pops)
     
-    # Save New breeding values
-    Bv <- bv(G7_pop)
-    
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G7_pop@id,])
     Pedigree_All <- rbind(Pedigree_All, Pedigree_New)
@@ -2344,13 +2651,47 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G7_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+     
+       #### Model ####
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G7_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G7_pop@id), ]
+    G7_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G7_pop),G7_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G7_pop@pheno <- matrix(0, nrow = nInd(G7_pop), ncol = 2)
+    
+    ##### Select blindly ######
+    G7_pop <- selectWithinFam(G7_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
     
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G7_pop,
                         rep = 1,
                         corE = E,
@@ -2387,22 +2728,38 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
-    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    #### Model 2 ####
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G7_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G7_pop@id), ]
     G7_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G7_pop@id), ]
     G7_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -2535,6 +2892,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -2548,6 +2906,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -2629,9 +2988,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Combine all families into one pop-object
     G8_pop <- do.call(c, G_pops)
     
-    # Save New breeding values
-    Bv <- bv(G8_pop)
-    
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G8_pop@id,])
     Pedigree_All <- rbind(Pedigree_All, Pedigree_New)
@@ -2656,13 +3012,47 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G8_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    #### Model ####
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G8_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G8_pop@id), ]
+    G8_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G8_pop),G8_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G8_pop@pheno <- matrix(0, nrow = nInd(G8_pop), ncol = 2)
+    
+    ##### Select blindly ######
+    G8_pop <- selectWithinFam(G8_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
     
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G8_pop,
                         rep = 1,
                         corE = E,
@@ -2699,22 +3089,38 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
-    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    #### Model 2 ####
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G8_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G8_pop@id), ]
     G8_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G8_pop@id), ]
     G8_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -2847,6 +3253,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -2860,6 +3267,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -2941,9 +3349,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Combine all families into one pop-object
     G9_pop <- do.call(c, G_pops)
     
-    # Save New breeding values
-    Bv <- bv(G9_pop)
-    
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G9_pop@id,])
     Pedigree_All <- rbind(Pedigree_All, Pedigree_New)
@@ -2969,13 +3374,47 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G9_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    #### Model ####
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G9_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G9_pop@id), ]
+    G9_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G9_pop),G9_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G9_pop@pheno <- matrix(0, nrow = nInd(G9_pop), ncol = 2)
+    
+    ##### Select blindly ######
+    G9_pop <- selectWithinFam(G9_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
     
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G9_pop,
                         rep = 1,
                         corE = E,
@@ -3012,22 +3451,37 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
-    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    #### Model 2 ####
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G9_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G9_pop@id), ]
     G9_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G9_pop@id), ]
     G9_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -3160,6 +3614,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
                             Trait1_Bias = Bias_1,
@@ -3173,6 +3628,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
                             Trait2_Bias = Bias_2,
@@ -3256,9 +3712,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Combine all families into one pop-object
     G10_pop <- do.call(c, G_pops)
     
-    # Save New breeding values
-    Bv <- bv(G10_pop)
-    
     # Update pedigree
     Pedigree_New <- as.data.frame(SP$pedigree[rownames(SP$pedigree) %in% G10_pop@id,])
     Pedigree_All <- rbind(Pedigree_All, Pedigree_New)
@@ -3283,13 +3736,47 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
-    ################ Assign phenotypic values ####################################
+    M_G<-pullSnpGeno(G10_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    #### Model ####
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
+    
+    # Save EBVs
+    EBVs<-as.data.frame(new_model$hat)
+    EBVs$ID <- rownames(G)
+    
+    EBVs <- EBVs[EBVs$ID %in% G10_pop@id,]
+    EBVs <- EBVs[match(EBVs$ID, G10_pop@id), ]
+    G10_pop@ebv <- as.matrix(EBVs[,1:2])
+    
+    Acc_blind <- cor(bv(G10_pop),G10_pop@ebv)
+    
+    # The select function requires that phenotypes exist
+    G10_pop@pheno <- matrix(0, nrow = nInd(G10_pop), ncol = 2)
+    
+    ##### Select blindly ######
+    G10_pop <- selectWithinFam(G10_pop,                                           # If the number of progenies are less than nProg/2 
+                              nInd = (nProg/2),                                # then that whole family will be selected  
+                              use = "ebv",
+                              selectTop = TRUE)                                 
+    
+    
+    ################ Assign phenotypic values ##################################  
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
     
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G10_pop,
                         rep = 1,
                         corE = E,
@@ -3326,22 +3813,38 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     New_Pheno_mean$Trait1_F <- New_Pheno_mean$Trait1 + New_Pheno_mean$Trait1 * (Inb * -0.35)
     New_Pheno_mean$Trait2_F <- New_Pheno_mean$Trait2 + New_Pheno_mean$Trait2 * (Inb * -0.35)
     
-    GLOBAL_Phenotypes <- rbind(GLOBAL_Phenotypes, New_Pheno_mean)
+    # Find indices in df1 where Trait is NA
+    na_rows <- is.na(GLOBAL_Phenotypes$Trait1)
     
-    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(A_Mat), GLOBAL_Phenotypes$ID), ]
+    # Match IDs in df1 to df2 for those rows
+    matched_indices <- match(GLOBAL_Phenotypes$ID[na_rows], New_Pheno_mean$ID)
     
-    y<-as.matrix(GLOBAL_Phenotypes[,4:5])
+    GLOBAL_Phenotypes$Trait1_F[na_rows] <- New_Pheno_mean$Trait1_F[matched_indices]
+    GLOBAL_Phenotypes$Trait2_F[na_rows] <- New_Pheno_mean$Trait2_F[matched_indices]
+    GLOBAL_Phenotypes$Trait1[na_rows] <- New_Pheno_mean$Trait1[matched_indices]
+    GLOBAL_Phenotypes$Trait2[na_rows] <- New_Pheno_mean$Trait2[matched_indices]
     
-    #### Model ####
-    new_model<-mkr(y,A_Mat)
+    GLOBAL_Phenotypes <- GLOBAL_Phenotypes[match(rownames(G), GLOBAL_Phenotypes$ID), ]
+    
+    
+    # Select only phenotypes from past 5 generations
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes[GLOBAL_Phenotypes$ID %in% colnames(G),]
+    
+    GLOBAL_Phenotypes_5 <- GLOBAL_Phenotypes_5[match(rownames(G), GLOBAL_Phenotypes_5$ID), ]
+    
+    #### Model 2 ####
+    y<-as.matrix(GLOBAL_Phenotypes_5[,4:5])
+    
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
-    EBVs$ID <- rownames(A_Mat)
+    EBVs$ID <- rownames(G)
     
     EBVs <- EBVs[EBVs$ID %in% G10_pop@id,]
     EBVs <- EBVs[match(EBVs$ID, G10_pop@id), ]
     G10_pop@ebv <- as.matrix(EBVs[,1:2])
+    
     
     New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G10_pop@id), ]
     G10_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
@@ -3383,6 +3886,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                         TBV2 = Bv[,2],
                         EBV1 = G10_pop@ebv[,1],
                         EBV2 = G10_pop@ebv[,2])
+    
     WF_df$Family <- as.integer(interaction(WF_df$Mum, WF_df$Dad, drop = TRUE))
     
     summary_df <- WF_df %>%
@@ -3474,9 +3978,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait1_VarA = VarA[1,1],
                             Trait1_MeanP = Phen.Mean[1],
                             Trait1_VarP = VarP[1,1],
+                            Trait1_Acc_Blind = Acc_blind[1,1],
                             Trait1_Acc = Acc[1,1],
                             Trait1_WF_Acc = WF_Acc1,
-                            
                             Trait1_Bias = Bias_1,
                             Trait1_Dispersion = slope1,
                             Trait1_SI_est = EBV_Intensity_1,
@@ -3488,9 +3992,9 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                             Trait2_VarA = VarA[2,2],
                             Trait2_MeanP = Phen.Mean[2],
                             Trait2_VarP = VarP[2,2],
+                            Trait2_Acc_Blind = Acc_blind[2,2],
                             Trait2_Acc = Acc[2,2],
                             Trait2_WF_Acc = WF_Acc2,
-                            
                             Trait2_Bias = Bias_2,
                             Trait2_Dispersion = slope2,
                             Trait2_SI_est = EBV_Intensity_2,
@@ -3553,7 +4057,50 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
                                 Gen = "G10")
     
     GLOBAL_diversity <- rbind(GLOBAL_diversity, new_diversity)    
+  
+    ################################################################################
+    # Record Simulated Parameters
+    Sim <- data.frame(Chromosomes = PaChr,
+                      QTLs = nQtl,
+                      SNPs = nSNP,
+                      Chr.Size.bp = ChrLen,
+                      Chr.Size.mo = PG_Chr_M,
+                      Mut.Rate = ConMR,
+                      FoundersNr = nFounders,
+                      Founders.ne = neFounders,
+                      BurnInGen = nGenBurnIn,
+                      BurnInCross = nCrossBurnIn,
+                      BurnInProg = nProgBurnIn,
+                      ParentsNr = nParents,
+                      FamiliesNr = nCross,
+                      SD_FamilySize = sdFam,
+                      ProgenyNr = nProg,
+                      RametsPerClone = Ramets,
+                      Trait = Trait,
+                      Trait.mean = initMeanG,
+                      GenVariance = initVarG,
+                      GeneticCorrelation = CorA, 
+                      PhenotypicCorrelation = CorP, 
+                      h2 = h2,
+                      Inb.Dep. = ID,
+                      MatePlan = MatePlan,
+                      Gamma = GAMMA,
+                      GammaShape = GShape,
+                      SegSite = SegSite)
     
+    # Simulation Parameters
+    filename <- paste0("RCB_Init_Parameters", today_date, ".txt")
+    write.table(Sim, filename, quote = F, col.names = T, row.names = F, sep = "\t")
+    
+    # Record breeding progress
+    filename <- paste0("RCB_Trait_Data", today_date, ".txt")
+    write.table(GLOBAL_trait, filename, quote = F, col.names = T, row.names = F, sep = "\t")
+    
+    # Record diversity measures
+    filename <- paste0("RCB_Diversity", today_date, ".txt")
+    write.table(GLOBAL_diversity, filename, quote = F, col.names = T, row.names = F, sep = "\t")
+    
+      
   
 ######################### Visualize results ####################################
 
@@ -3568,7 +4115,7 @@ plot(x = c(1:11), y = GLOBAL_trait$CorP, type = "l", col = "black", lwd = 3,
 # Heritability
 varRanges = range(c(GLOBAL_trait$Trait1_h2_est, GLOBAL_trait$Trait2_h2_est))
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_h2_est, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "h2_est", ylim = varRanges) +
+     xlab = "Generation", ylab = "Estimated h2", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_h2_est, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
@@ -3576,7 +4123,7 @@ legend(x = "topleft", legend = c("1", "2"), title = "Trait",
 # True Heritability
 varRanges = range(c(GLOBAL_trait$Trait1_h2, GLOBAL_trait$Trait2_h2))
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_h2, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "h2", ylim = varRanges) +
+     xlab = "Generation", ylab = "True h2", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_h2, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
@@ -3592,7 +4139,7 @@ legend(x = "topleft", legend = c("1", "2"), title = "Trait",
 # Additive variance
 varRanges = range(c(GLOBAL_trait$Trait1_VarA, GLOBAL_trait$Trait2_VarA))
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_VarA, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "VarA", ylim = varRanges) +
+     xlab = "Generation", ylab = "Additive Variance", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_VarA, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
@@ -3600,7 +4147,7 @@ legend(x = "topleft", legend = c("1", "2"), title = "Trait",
 # Genetic Value
 varRanges = range(c(GLOBAL_trait$Trait1_MeanG, GLOBAL_trait$Trait2_MeanG))
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_MeanG, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "MeanG", ylim = varRanges) +
+     xlab = "Generation", ylab = "Mean Genetic Value", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_MeanG, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
@@ -3609,7 +4156,7 @@ legend(x = "topleft", legend = c("1", "2"), title = "Trait",
 # Phenotypic variance
 varRanges = range(c(GLOBAL_trait$Trait1_VarP, GLOBAL_trait$Trait2_VarP))
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_VarP, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "VarP", ylim = varRanges) +
+     xlab = "Generation", ylab = "Phenotypic Variance", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_VarP, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
@@ -3617,28 +4164,36 @@ legend(x = "topleft", legend = c("1", "2"), title = "Trait",
 # Phenotypic mean
 varRanges = range(c(GLOBAL_trait$Trait1_MeanP, GLOBAL_trait$Trait2_MeanP))
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_MeanP, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "MeanP", ylim = varRanges) +
+     xlab = "Generation", ylab = "Mean Phenotype", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_MeanP, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
 
 # Prediction Accuracy
-varRanges = range(c(GLOBAL_trait$Trait1_Acc, GLOBAL_trait$Trait2_Acc))
+varRanges = range(c(GLOBAL_trait$Trait1_Acc, GLOBAL_trait$Trait2_Acc), na.rm = T)
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_Acc, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "Acc", ylim = varRanges) +
+     xlab = "Generation", ylab = "Global Accuracy", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_Acc, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
 
-varRanges = range(c(GLOBAL_trait$Trait1_WF_Acc, GLOBAL_trait$Trait2_WF_Acc))
+# Blind Accuracy
+varRanges = range(c(GLOBAL_trait$Trait1_Acc_Blind, GLOBAL_trait$Trait2_Acc_Blind),na.rm = T)
+plot(x = c(1:11), y = GLOBAL_trait$Trait1_Acc_Blind, type = "l", col = "black", lwd = 3,
+     xlab = "Generation", ylab = "Blind Accuracy", ylim = varRanges) +
+  lines(x = c(1:11), y = GLOBAL_trait$Trait2_Acc_Blind, type = "l", col = "purple", lty = 2, lwd = 3) 
+legend(x = "topleft", legend = c("1", "2"), title = "Trait",
+       lwd = 3, lty = c(1, 2), col = c("black", "purple"))
+
+varRanges = range(c(GLOBAL_trait$Trait1_WF_Acc, GLOBAL_trait$Trait2_WF_Acc), na.rm = T)
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_WF_Acc, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "Within-Family Acc", ylim = varRanges) +
+     xlab = "Generation", ylab = "Within-Family Accuracy", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_WF_Acc, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
 
 # Dispersion
-varRanges = range(c(GLOBAL_trait$Trait1_Dispersion, GLOBAL_trait$Trait2_Dispersion))
+varRanges = range(c(GLOBAL_trait$Trait1_Dispersion, GLOBAL_trait$Trait2_Dispersion), na.rm = T)
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_Dispersion, type = "l", col = "black", lwd = 3,
      xlab = "Generation", ylab = "Dispersion", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_Dispersion, type = "l", col = "purple", lty = 2, lwd = 3) 
@@ -3646,17 +4201,17 @@ legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
 
 # Selection intensities
-varRanges = range(c(GLOBAL_trait$Trait1_SI_est, GLOBAL_trait$Trait2_SI_est))
+varRanges = range(c(GLOBAL_trait$Trait1_SI_est, GLOBAL_trait$Trait2_SI_est), na.rm = T)
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_SI_est, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "SI_est", ylim = varRanges) +
+     xlab = "Generation", ylab = "Estimated Selection Intensity", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_SI_est, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
 
 # Selection intensity true
-varRanges = range(c(GLOBAL_trait$Trait1_SI, GLOBAL_trait$Trait2_SI))
+varRanges = range(c(GLOBAL_trait$Trait1_SI, GLOBAL_trait$Trait2_SI), na.rm = T)
 plot(x = c(1:11), y = GLOBAL_trait$Trait1_SI, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "SI", ylim = varRanges) +
+     xlab = "Generation", ylab = "Selection Intensity", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_trait$Trait2_SI, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
@@ -3677,11 +4232,10 @@ plot(x = c(1:11), y = GLOBAL_diversity$Co, type = "l", col = "black", lwd = 3,
 # Estimated Inbreeding Depression
 varRanges = range(c(GLOBAL_diversity$ID_est1, GLOBAL_diversity$ID_est2), na.rm = T)
 plot(x = c(1:11), y = GLOBAL_diversity$ID_est1, type = "l", col = "black", lwd = 3,
-     xlab = "Generation", ylab = "ID", ylim = varRanges) +
+     xlab = "Generation", ylab = "Estimated Inb.Depr.", ylim = varRanges) +
   lines(x = c(1:11), y = GLOBAL_diversity$ID_est2, type = "l", col = "purple", lty = 2, lwd = 3) 
 legend(x = "topleft", legend = c("1", "2"), title = "Trait",
        lwd = 3, lty = c(1, 2), col = c("black", "purple"))
-
 
 
 # ID across all generations
@@ -3712,45 +4266,3 @@ ggplot(maf_values_df_0.01, aes(x = Frequency, y = Gen)) +
   ggtitle("Min MAF 0.01") +
   theme_minimal() +
   theme(legend.position = "none")
-
-
-
-################################################################################
-# Record Simulated Parameters
-Sim <- data.frame(Chromosomes = PaChr,
-                  QTLs = nQtl,
-                  SNPs = nSNP,
-                  Chr.Size.bp = ChrLen,
-                  Chr.Size.mo = PG_Chr_M,
-                  Mut.Rate = ConMR,
-                  FoundersNr = nFounders,
-                  Founders.ne = neFounders,
-                  BurnInGen = nGenBurnIn,
-                  BurnInCross = nCrossBurnIn,
-                  BurnInProg = nProgBurnIn,
-                  ParentsNr = nParents,
-                  FamiliesNr = nCross,
-                  ProgenyNr = nProg,
-                  Trait = Trait,
-                  Trait.mean = initMeanG,
-                  GenVariance = initVarG,
-                  GeneticCorrelation = CorA, 
-                  PhenotypicCorrelation = CorP, 
-                  h2 = h2,
-                  InbreedingDepression = ID,
-                  MatePlan = MatePlan,
-                  Gamma = GAMMA,
-                  GammaShape = GShape,
-                  SegSite = SegSite)
-
-# Simulation Parameters
-filename <- paste0("RCB_Init_Parameters", today_date, ".txt")
-write.table(Sim, filename, quote = F, col.names = T, row.names = F, sep = "\t")
-
-# Record breeding progress
-filename <- paste0("RCB_Trait_Data", today_date, ".txt")
-write.table(GLOBAL_trait, filename, quote = F, col.names = T, row.names = F, sep = "\t")
-
-# Record diversity measures
-filename <- paste0("RCB_Diversity", today_date, ".txt")
-write.table(GLOBAL_diversity, filename, quote = F, col.names = T, row.names = F, sep = "\t")

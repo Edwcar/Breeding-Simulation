@@ -1,5 +1,12 @@
 # AlphaSim Simulation 
 
+
+# 10000 gets coded as 1e^+5, so it wont match the names with other data.frame
+
+
+
+
+
 # Date of simulation
 today_date <- paste(format(Sys.Date(), "%Y-%m-%d"))
 
@@ -69,7 +76,7 @@ ID = -0.35 # Source:
 
 
 # Error variance
-initVarE = 4*(CV * initMeanG)^2
+initVarE = 4*(CV * initMeanG)^2 
 
 # Additve genetic correlation between traits
 CorA <- 0.9
@@ -95,20 +102,21 @@ nG0 = 500
 # Crosses
 nParents = 10   # Number of parents to be selected
 nCross = 20     # Number of families to create from Parents
-nProg = 10      # Number of progeny per cross
+nProg = 5      # Number of progeny per cross
 sdFam = 5
+
 # Mating schemes
 MatePlan = "RandCross"
 
-# Phenotyping efforts
-ramets = 12 # Ramets per site
+# Number of replicates
+Ramets = 12
 
 # Number of generations to simulate
 # Define number of generations
 
 # Genotyping Parameters
 # SNP chip for GS
-nSNP = 100     # Nr of SNPs per chromosome
+nSNP = 1000     # Nr of SNPs per chromosome
 minMAF = 0.01  # Minimum MAF for inclusion
 
 
@@ -277,6 +285,9 @@ SP$addSnpChip(nSNP, minSnpFreq = minMAF,name = "GS", refPop = G0_pop)
 G_new<-pullSnpGeno(G0_pop)
 maf_values_df <- data.frame(Frequency = apply(G_new, 2, calculate_maf),
                             Gen = "G0")
+
+M_G0<-pullSnpGeno(G0_pop, snpChip = 1)-1
+G = A.mat(M_G0, impute.method = "mean", min.MAF = 0.01)
 
 # Add first phenotypes
 G0_Pheno <- data.frame()
@@ -503,13 +514,18 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
   
   maf_values_df <- rbind(maf_values_df,maf_values_new) 
   
+  M_G<-pullSnpGeno(G1_pop, snpChip = 1)-1
+  M <- rbind(M_G0, M_G)
+  G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+  
+  
   ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
   # Should I use the same initial error variance here?
   
   
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G1_pop,
                         rep = 1,
                         corE = E,
@@ -807,13 +823,14 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G2_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G2_pop,
                         rep = 1,
                         corE = E,
@@ -857,7 +874,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -1110,13 +1127,14 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G3_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G3_pop,
                         rep = 1,
                         corE = E,
@@ -1160,7 +1178,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -1170,7 +1188,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     EBVs <- EBVs[match(EBVs$ID, G3_pop@id), ]
     G3_pop@ebv <- as.matrix(EBVs[,1:2])
     
-    New_Pheno_mean <- New_Pheno_mean[match(New_Pheno_mean$ID, G3_pop@id), ]
     G3_pop@pheno <- as.matrix(New_Pheno_mean[,4:5])
     
     ##### Select parents ######
@@ -1415,13 +1432,14 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G4_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
-    
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+
+    for (i in 1:Ramets) {
       pheno <- setPheno(G4_pop,
                         rep = 1,
                         corE = E,
@@ -1465,7 +1483,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -1719,13 +1737,14 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G5_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
-    
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+
+    for (i in 1:Ramets) {
       pheno <- setPheno(G5_pop,
                         rep = 1,
                         corE = E,
@@ -1769,7 +1788,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -2032,13 +2051,16 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G6_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G6_pop,
                         rep = 1,
                         corE = E,
@@ -2082,7 +2104,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -2123,51 +2145,6 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     # Prediction accuracy 
     Bv <- bv(G6_pop)
     Acc <- cor(bv(G6_pop),G6_pop@ebv) 
-    
-    # Within-family accuracy
-    WF_df <- data.frame(ID = G6_pop@id,
-                        Mum = G6_pop@mother,
-                        Dad = G6_pop@father,
-                        TBV1 = Bv[,1],
-                        TBV2 = Bv[,2],
-                        EBV1 = G6_pop@ebv[,1],
-                        EBV2 = G6_pop@ebv[,2])
-    WF_df$Family <- as.integer(interaction(WF_df$Mum, WF_df$Dad, drop = TRUE))
-    
-    summary_df <- WF_df %>%
-      group_by(Family) %>%
-      summarize(
-        famSize = n(),
-        accuracy1 = if(n() > 1) cor(TBV1, EBV1) else NA_real_,
-        accuracy2 = if(n() > 1) cor(TBV2, EBV2) else NA_real_,
-      ) %>%
-      ungroup()
-    
-    
-    WF_Acc1<-mean(summary_df$accuracy1, na.rm = T)
-    WF_Acc2<-mean(summary_df$accuracy2, na.rm = T)
-    
-    T1_plot<-ggplot(summary_df, aes(x = Family, y = accuracy1, size = famSize)) +
-      geom_point(alpha = 0.4, color = "red") +
-      scale_size_continuous(name = "Family size") +
-      labs(
-        title = "G5",
-        x = "Family ID",
-        y = "Accuracy"
-      ) +
-      theme_minimal()
-    
-    T2_plot<-ggplot(summary_df, aes(x = Family, y = accuracy2, size = famSize)) +
-      geom_point(alpha = 0.4, color = "darkred") +
-      scale_size_continuous(name = "Family size") +
-      labs(
-        title = "",
-        x = "Family ID",
-        y = "Accuracy"
-      ) +
-      theme_minimal()
-    
-    grid.arrange(T1_plot,T2_plot)
     
     # Prediction Bias
     Bv <- bv(G6_pop)
@@ -2344,13 +2321,16 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G7_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G7_pop,
                         rep = 1,
                         corE = E,
@@ -2394,7 +2374,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -2656,13 +2636,16 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G8_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G8_pop,
                         rep = 1,
                         corE = E,
@@ -2706,7 +2689,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -2969,13 +2952,16 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G9_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G9_pop,
                         rep = 1,
                         corE = E,
@@ -3019,7 +3005,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -3283,13 +3269,16 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     maf_values_df <- rbind(maf_values_df,maf_values_new) 
     
+    M_G<-pullSnpGeno(G10_pop, snpChip = 1)-1
+    M <- rbind(M, M_G)
+    M <- M[rownames(M) %in% rownames(Pedigree_5G),]
+    
+    G = A.mat(M, impute.method = "mean", min.MAF = 0.01)
+    
     ################ Assign phenotypic values ####################################
     New_Pheno <- data.frame()
     
-    # Should I use the same initial error variance here?
-    
-    
-    for (i in 1:ramets) {
+    for (i in 1:Ramets) {
       pheno <- setPheno(G10_pop,
                         rep = 1,
                         corE = E,
@@ -3333,7 +3322,7 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     y<-as.matrix(GLOBAL_Phenotypes[,4:5])
     
     #### Model ####
-    new_model<-mkr(y,A_Mat)
+    new_model<-mkr(y,G)
     
     # Save EBVs
     EBVs<-as.data.frame(new_model$hat)
@@ -3554,7 +3543,48 @@ GLOBAL_diversity <- data.frame(F.inb = Inbreeding,
     
     GLOBAL_diversity <- rbind(GLOBAL_diversity, new_diversity)    
     
-  
+
+    ################################################################################
+    # Record Simulated Parameters
+    Sim <- data.frame(Chromosomes = PaChr,
+                      QTLs = nQtl,
+                      SNPs = nSNP,
+                      Chr.Size.bp = ChrLen,
+                      Chr.Size.mo = PG_Chr_M,
+                      Mut.Rate = ConMR,
+                      FoundersNr = nFounders,
+                      Founders.ne = neFounders,
+                      BurnInGen = nGenBurnIn,
+                      BurnInCross = nCrossBurnIn,
+                      BurnInProg = nProgBurnIn,
+                      ParentsNr = nParents,
+                      FamiliesNr = nCross,
+                      ProgenyNr = nProg,
+                      Trait = Trait,
+                      Trait.mean = initMeanG,
+                      GenVariance = initVarG,
+                      GeneticCorrelation = CorA, 
+                      PhenotypicCorrelation = CorP, 
+                      h2 = h2,
+                      InbreedingDepression = ID,
+                      MatePlan = MatePlan,
+                      Gamma = GAMMA,
+                      GammaShape = GShape,
+                      SegSite = SegSite)
+    
+    # Simulation Parameters
+    filename <- paste0("RCB_Init_Parameters", today_date, ".txt")
+    write.table(Sim, filename, quote = F, col.names = T, row.names = F, sep = "\t")
+    
+    # Record breeding progress
+    filename <- paste0("RCB_Trait_Data", today_date, ".txt")
+    write.table(GLOBAL_trait, filename, quote = F, col.names = T, row.names = F, sep = "\t")
+    
+    # Record diversity measures
+    filename <- paste0("RCB_Diversity", today_date, ".txt")
+    write.table(GLOBAL_diversity, filename, quote = F, col.names = T, row.names = F, sep = "\t")
+    
+      
 ######################### Visualize results ####################################
 
 # Additive trait correlation
@@ -3712,45 +3742,3 @@ ggplot(maf_values_df_0.01, aes(x = Frequency, y = Gen)) +
   ggtitle("Min MAF 0.01") +
   theme_minimal() +
   theme(legend.position = "none")
-
-
-
-################################################################################
-# Record Simulated Parameters
-Sim <- data.frame(Chromosomes = PaChr,
-                  QTLs = nQtl,
-                  SNPs = nSNP,
-                  Chr.Size.bp = ChrLen,
-                  Chr.Size.mo = PG_Chr_M,
-                  Mut.Rate = ConMR,
-                  FoundersNr = nFounders,
-                  Founders.ne = neFounders,
-                  BurnInGen = nGenBurnIn,
-                  BurnInCross = nCrossBurnIn,
-                  BurnInProg = nProgBurnIn,
-                  ParentsNr = nParents,
-                  FamiliesNr = nCross,
-                  ProgenyNr = nProg,
-                  Trait = Trait,
-                  Trait.mean = initMeanG,
-                  GenVariance = initVarG,
-                  GeneticCorrelation = CorA, 
-                  PhenotypicCorrelation = CorP, 
-                  h2 = h2,
-                  InbreedingDepression = ID,
-                  MatePlan = MatePlan,
-                  Gamma = GAMMA,
-                  GammaShape = GShape,
-                  SegSite = SegSite)
-
-# Simulation Parameters
-filename <- paste0("RCB_Init_Parameters", today_date, ".txt")
-write.table(Sim, filename, quote = F, col.names = T, row.names = F, sep = "\t")
-
-# Record breeding progress
-filename <- paste0("RCB_Trait_Data", today_date, ".txt")
-write.table(GLOBAL_trait, filename, quote = F, col.names = T, row.names = F, sep = "\t")
-
-# Record diversity measures
-filename <- paste0("RCB_Diversity", today_date, ".txt")
-write.table(GLOBAL_diversity, filename, quote = F, col.names = T, row.names = F, sep = "\t")
