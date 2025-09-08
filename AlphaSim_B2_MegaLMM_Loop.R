@@ -12,7 +12,7 @@ library(MegaLMM)
 library(gridExtra)
 
 options(scipen = 999)  # large penalty against scientific notation
- 
+
 # Test change
 
 # Set initial Simullation values #############################
@@ -34,7 +34,7 @@ MatAge = 45
 ConMR = (2.2*10^-9) * MatAge # Source: Nystedt et al., 2013 https://doi.org/10.1038/nature12211
 
 # Number of segregating sites to simulate
-SegSite = 100000
+SegSite = 1000
 
 # Trait Parameters
 # Need two if using multivariate as a way to integrate two measurements 
@@ -66,17 +66,17 @@ inb_penalty = -0.35 # Source:
 initVarE = 4*(CV * initMeanG)^2
 
 # Additve genetic correlation between traits
-CorA <- 0.9
+CorA <- 0.8
 # Phenotypic correlation between traits
-CorP <- 0.8
+CorP <- 0.9
 
 # Heritability
 h2 = 0.2
 
 # Founder Parameters    
 # Founder Population
-nFounders = 200   # Number of founders in the population
-neFounders = 100   # Effective population size of founders
+nFounders = 100   # Number of founders in the population
+neFounders = 10   # Effective population size of founders
 
 nGenBurnIn <- 100   # Number of descrete burn-in generations
 nCrossBurnIn <- 100 # Number of crosses within each burn-in generation
@@ -88,8 +88,8 @@ nG0 = 500
 
 # Crosses
 nParents = 10   # Number of parents to be selected
-nCrosses = 20   # Number of families to create from Parents
-nProgeny = 10   # Number of progeny per cross
+nCrosses = 10   # Number of families to create from Parents
+nProgeny = 5   # Number of progeny per cross
 nInd_Fam = 1    # Number of clones to select within each family
 
 # Mating schemes
@@ -106,7 +106,7 @@ minMAF = 0.01  # Minimum MAF for inclusion
 
 
 ##################### Number of generations to simulate ########################
-nGen <- 5   # (after G0)
+nGen <- 4   # (after G0)
 
 ############################## Functions #######################################
 # Calculating MAF
@@ -228,12 +228,12 @@ run_parameters = MegaLMM_control(
   h2_divisions = 20,   
   burn = 0,     
   thin = 2,
-  K = 4)
+  K = 2)
 
 # Sampling the the MCMC chain
 
-burn_iter = 100
-sample_iter = 50
+burn_iter = 10
+sample_iter = 10
 
 # How many paralell samplings
 n_burn_runs = 5
@@ -395,7 +395,7 @@ dim(A)
 gen_list[[2]] <- G1_pop
 
 ############################ Loop G1 → Gn ############################
-for (gen in 2:(nGen+1)) {
+for (gen in 2:(nGen+2)) {
   cat("=== Generation", gen-1, "===\n")
   pop <- gen_list[[gen]]
   
@@ -405,9 +405,9 @@ for (gen in 2:(nGen+1)) {
                    momid = Pedigree_All$mother)
   
   # Genotype Seedlings
-  # M<-pullSnpGeno(pop, snpChip = 1)-1
-  #  M_All <- rbind(M_All, M)
-  #  G = A.mat(M_All, impute.method = "mean", min.MAF = 0.01)
+   M<-pullSnpGeno(pop, snpChip = 1)-1
+    M_All <- rbind(M_All, M)
+    G = A.mat(M_All, impute.method = "mean", min.MAF = 0.01)
   
   # Set phenotypes
   pop <- setPheno(pop = pop,
@@ -419,7 +419,7 @@ for (gen in 2:(nGen+1)) {
   
   Pheno <- as.data.frame(pop@pheno) # Save phenotypes
   Pheno$ID <- pop@id
-
+  
   # Apply inbreeding penalty
   Inb <- data.frame(Inb = (diag(A)) - 1, ID = rownames(A))
   Inb <- Inb[match(pop@id, Inb$ID), ]
@@ -429,7 +429,7 @@ for (gen in 2:(nGen+1)) {
   
   # Store phenotypes
   Pheno_All <- rbind(Pheno_All, Pheno)
-  Pheno_All <- Pheno_All[match(rownames(A), Pheno_All$ID), ]
+  Pheno_All <- Pheno_All[match(rownames(G), Pheno_All$ID), ]
   
   # Create relationship matrix
   A <- 2 * kinship(id = as.numeric(rownames(Pedigree_All)),
@@ -439,7 +439,7 @@ for (gen in 2:(nGen+1)) {
   # Get GEBVs with MegaLMM
   Y <- as.matrix(Pheno_All[, c("Trait1", "Trait2")])
   MegaLMM_state <- setup_model_MegaLMM(
-    Y, ~1 + (1|ID), data = Pheno_All, relmat = list(ID = A),
+    Y, ~1 + (1|ID), data = Pheno_All, relmat = list(ID = G),
     run_parameters = run_parameters, run_ID = paste0("Gen", gen-1, "_MegaLMM"))
   
   MegaLMM_state <- run_megalm_analysis(
@@ -461,8 +461,8 @@ for (gen in 2:(nGen+1)) {
     geom_line(alpha = 0.6) +
     facet_wrap(~ Factor, scales = "free_y") +
     labs(x = "Iteration", y = "Lambda Value",    
-    title = paste("MCMC Trace by Factor – Generation", gen-1) 
-) +
+         title = paste("MCMC Trace by Factor – Generation", gen-1) 
+    ) +
     theme_minimal()
   
   print(Convergance)
@@ -492,7 +492,7 @@ for (gen in 2:(nGen+1)) {
 ############################ Output ############################
 # Compute genetic variance per trait for all generations
 
-gen_list[[gen]]<-NULL
+gen_list[[length(gen_list)]]<-NULL
 
 results <- data.frame()
 wf_results <- data.frame()   # per-family WF accuracies
